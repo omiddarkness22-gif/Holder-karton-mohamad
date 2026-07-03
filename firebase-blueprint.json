@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "Cafe": {
+      "title": "Cafe",
+      "description": "Information about a cafe and its visit status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "managerName": { "type": "string" },
+        "phone": { "type": "string" },
+        "address": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "assignedDate": { "type": "string" },
+        "visitStatus": { "type": "string", "enum": ["pending", "sold", "no_sale", "closed", "callback"] },
+        "lastVisitDate": { "type": "string" },
+        "lastVisitReportId": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "managerName", "phone", "address", "lat", "lng", "visitStatus", "createdAt"]
+    },
+    "VisitReport": {
+      "title": "VisitReport",
+      "description": "A report of a visit/sale to a cafe",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cafeId": { "type": "string" },
+        "cafeName": { "type": "string" },
+        "driverName": { "type": "string" },
+        "status": { "type": "string", "enum": ["sold", "no_sale", "closed", "callback"] },
+        "quantitySold": { "type": "number" },
+        "totalPrice": { "type": "number" },
+        "notes": { "type": "string" },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["id", "cafeId", "cafeName", "driverName", "status", "quantitySold", "totalPrice", "notes", "timestamp"]
+    },
+    "DriverStatus": {
+      "title": "DriverStatus",
+      "description": "The real-time status and location of a driver",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "lat": { "type": "number" },
+        "lng": { "type": "number" },
+        "lastActive": { "type": "number" },
+        "isSharingLocation": { "type": "boolean" }
+      },
+      "required": ["id", "name", "lat", "lng", "lastActive", "isSharingLocation"]
+    }
+  },
+  "firestore": {
+    "cafes": {
+      "schema": "Cafe",
+      "description": "Collection of cafes"
+    },
+    "reports": {
+      "schema": "VisitReport",
+      "description": "Collection of visit reports"
+    },
+    "driverStatus": {
+      "schema": "DriverStatus",
+      "description": "Collection of driver status documents"
+    }
+  }
+}

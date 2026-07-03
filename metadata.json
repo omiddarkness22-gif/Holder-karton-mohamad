@@ -1,0 +1,10 @@
+{
+  "name": "کارتن محمد - دزفول",
+  "description": "سیستم هوشمند بازاریابی، توزیع و ردیابی آنلاین فروش هولدر لیوان برای کارتن‌سازی محمد در شهرستان دزفول",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
