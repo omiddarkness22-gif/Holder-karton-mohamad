@@ -29,6 +29,8 @@ interface DriverPanelProps {
   onCafeSelect: (cafeId: string) => void;
   setUserLocation: (coords: { lat: number; lng: number } | null) => void;
   activeDate: string;
+  darkMode: boolean;
+  toggleDarkMode: () => void;
 }
 
 export default function DriverPanel({
@@ -42,10 +44,12 @@ export default function DriverPanel({
   onCafeSelect,
   setUserLocation,
   activeDate,
+  darkMode,
+  toggleDarkMode,
 }: DriverPanelProps) {
   // Form states
   const [status, setStatus] = useState<Cafe['visitStatus']>('sold');
-  const [quantity, setQuantity] = useState<number>(100);
+  const [quantity, setQuantity] = useState<number | ''>(100);
   const [totalPrice, setTotalPrice] = useState<number>(150000); // 150,000 Tomans
   const [notes, setNotes] = useState('');
 
@@ -67,7 +71,8 @@ export default function DriverPanel({
   // Automatically calculate total price based on unit price (driver cannot edit price)
   useEffect(() => {
     if (selectedProduct) {
-      setTotalPrice(quantity * selectedProduct.price);
+      const qty = typeof quantity === 'number' ? quantity : 0;
+      setTotalPrice(qty * selectedProduct.price);
     }
   }, [quantity, selectedProduct]);
   
@@ -238,12 +243,13 @@ export default function DriverPanel({
     setError('');
     setSuccess('');
 
+    const qtyNum = typeof quantity === 'number' ? quantity : 0;
     const reportData: Omit<VisitReport, 'id' | 'timestamp'> = {
         cafeId: selectedCafe.id,
         cafeName: selectedCafe.name,
         driverName: driverStatus?.name || 'محمد دزفولی',
         status: status as VisitReport['status'],
-        quantitySold: status === 'sold' ? quantity : 0,
+        quantitySold: status === 'sold' ? qtyNum : 0,
         totalPrice: status === 'sold' ? totalPrice : 0,
         notes: notes.trim(),
     };
@@ -268,13 +274,18 @@ export default function DriverPanel({
     return str.toString().replace(/[0-9]/g, (w) => id[+w]);
   };
 
+  const toEnglishDigits = (str: string): string => {
+    return str.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776))
+              .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632));
+  };
+
   const formatPrice = (amount: number) => {
     if (!amount) return '۰';
     return new Intl.NumberFormat('fa-IR').format(amount);
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 rtl text-right" id="driver_panel_root">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 rtl text-right dark:text-white" id="driver_panel_root">
       
       {/* 1. Today's Target List (4 Cols) */}
       <div className="lg:col-span-4 flex flex-col gap-5">
@@ -609,7 +620,7 @@ export default function DriverPanel({
             <form onSubmit={handleReportSubmit} className="mt-5 space-y-4">
               <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
                 <FileText className="w-4 h-4 text-orange-600" />
-                <span>ثبت گزارش و نتایج بازاریابی هولدر لیوان</span>
+                <span>ثبت گزارش و نتایج بازاریابی کارتن</span>
               </h4>
 
               {error && <div className="text-xs text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-lg font-bold">{error}</div>}
@@ -729,15 +740,26 @@ export default function DriverPanel({
                       <div className="relative">
                         <input
                           id="form_qty"
-                          type="number"
-                          min="1"
+                          type="tel"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           required
-                          value={quantity}
+                          value={quantity === '' ? '' : quantity}
                           onChange={(e) => {
-                            const val = Math.max(1, parseInt(e.target.value) || 0);
-                            setQuantity(val);
+                            const inputVal = e.target.value;
+                            if (inputVal === '') {
+                              setQuantity('');
+                              return;
+                            }
+                            const cleanVal = toEnglishDigits(inputVal).replace(/\D/g, '');
+                            if (cleanVal === '') {
+                              setQuantity('');
+                            } else {
+                              const val = Math.max(1, parseInt(cleanVal, 10) || 1);
+                              setQuantity(val);
+                            }
                           }}
-                          className="w-full pl-12 pr-4 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-sans focus:outline-none focus:border-emerald-500 font-bold"
+                          className="w-full pl-12 pr-4 py-2 bg-white dark:bg-slate-800 dark:text-white border border-slate-200/80 dark:border-slate-700 rounded-xl text-xs font-sans focus:outline-none focus:border-emerald-500 font-bold text-slate-800"
                         />
                         <span className="absolute left-3 top-2 text-[10px] font-extrabold text-slate-400">عدد</span>
                       </div>
@@ -768,7 +790,7 @@ export default function DriverPanel({
 
                   {selectedProduct && (
                     <div className="text-[10px] bg-emerald-100/30 text-emerald-800 border border-emerald-100/50 p-2.5 rounded-xl leading-relaxed font-bold">
-                      محاسبه قیمت: {toPersianDigits(quantity)} عدد × {toPersianDigits(formatPrice(selectedProduct.price))} تومان (قیمت واحد مصوب مدیریت) = {toPersianDigits(formatPrice(totalPrice))} تومان
+                      محاسبه قیمت: {toPersianDigits(quantity || 0)} عدد × {toPersianDigits(formatPrice(selectedProduct.price))} تومان (قیمت واحد مصوب مدیریت) = {toPersianDigits(formatPrice(totalPrice))} تومان
                     </div>
                   )}
 

@@ -23,7 +23,7 @@ import AdminLogin from './components/AdminLogin';
 import ShamsiDatePicker from './components/ShamsiDatePicker';
 import { g_to_j, JALALI_MONTH_NAMES } from './lib/shamsi';
 import { motion, AnimatePresence } from 'motion/react';
-import { Coffee, Info, MessageSquareCode } from 'lucide-react';
+import { Coffee, Info, MessageSquareCode, Sparkles, Bell } from 'lucide-react';
 
 const SEED_CAFES: Omit<Cafe, 'id' | 'createdAt' | 'visitStatus' | 'lastVisitDate' | 'assignedDate'>[] = [
   {
@@ -78,12 +78,12 @@ const SEED_CAFES: Omit<Cafe, 'id' | 'createdAt' | 'visitStatus' | 'lastVisitDate
 
 const SEED_PRODUCTS: Omit<Product, 'id' | 'createdAt'>[] = [
   {
-    name: "هولدر لیوان ۲ تایی",
+    name: "کارتن لیوان ۲ تایی",
     price: 1500,
     description: "نگهدارنده دوتایی لیوان کاغذی بیرون‌بر"
   },
   {
-    name: "هولدر لیوان ۴ تایی",
+    name: "کارتن لیوان ۴ تایی",
     price: 2500,
     description: "نگهدارنده چهارتایی لیوان کاغذی بیرون‌بر"
   },
@@ -111,8 +111,21 @@ export default function App() {
   });
   const [cafes, setCafes] = useState<Cafe[]>([]);
   const [reports, setReports] = useState<VisitReport[]>([]);
-  const [driverStatus, setDriverStatus] = useState<DriverStatus | null>(null);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [darkMode]);
+
+  const toggleDarkMode = () => setDarkMode(!darkMode);
   const [products, setProducts] = useState<Product[]>([]);
+  const [driverStatus, setDriverStatus] = useState<DriverStatus | null>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   
   const [selectedCafeId, setSelectedCafeId] = useState<string | null>(null);
@@ -205,7 +218,7 @@ export default function App() {
         console.log('Seeding driver status document to Firestore...');
         const initialDriver: DriverStatus = {
           id: 'driver_mohammad',
-          name: 'آقای باغبان',
+          name: 'محمد دزفولی',
           lat: 32.3855,
           lng: 48.4065,
           lastActive: Date.now(),
@@ -253,15 +266,16 @@ export default function App() {
       handleFirestoreError(error, OperationType.GET, 'products');
     });
 
-    // E. Subscribe to Notifications for the driver
-    const notifQuery = query(collection(db, 'notifications'), orderBy('createdAt', 'desc'));
-    const unsubscribeNotifications = onSnapshot(notifQuery, (snapshot) => {
+    // E. Subscribe to Notifications in Real-time for driver
+    const notificationsQuery = query(
+      collection(db, 'notifications'),
+      where('driverId', '==', 'driver_mohammad'),
+      where('read', '==', false)
+    );
+    const unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
       const fetchedNotifications: any[] = [];
       snapshot.forEach((doc) => {
-        const data = doc.data();
-        if (data.driverId === 'driver_mohammad' && !data.read) {
-          fetchedNotifications.push({ id: doc.id, ...data });
-        }
+        fetchedNotifications.push({ id: doc.id, ...doc.data() });
       });
       setNotifications(fetchedNotifications);
     }, (error) => {
@@ -301,6 +315,21 @@ export default function App() {
   const handleDeleteCafe = async (cafeId: string) => {
     try {
       await deleteDoc(doc(db, 'cafes', cafeId));
+      
+      // Proactively clean up any notifications that refer to non-existent cafes
+      const remainingCafes = cafes.filter((c) => c.id !== cafeId);
+      const q = query(collection(db, 'notifications'), where('driverId', '==', 'driver_mohammad'), where('read', '==', false));
+      const snapshot = await getDocs(q);
+      
+      for (const docSnapshot of snapshot.docs) {
+        const data = docSnapshot.data();
+        // If a notification doesn't match ANY of the remaining cafes, it's an orphan
+        const isOrphan = !remainingCafes.some((c) => data.message?.includes(c.name));
+        
+        if (isOrphan) {
+          await deleteDoc(doc(db, 'notifications', docSnapshot.id));
+        }
+      }
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, `cafes/${cafeId}`);
     }
@@ -321,19 +350,22 @@ export default function App() {
         visitStatus,
       });
 
-      // Add Notification if assigned to today
-      if (date === todayStr) {
+      // Add Notification if assigned to any date
+      if (date) {
+         const dateLabel = getPersianDateString(date);
+         const msg = `بازدید جدید برای کافه "${cafe.name}" در تاریخ ${dateLabel} به برنامه شما اضافه شد.`;
+         
          const q = query(
            collection(db, 'notifications'),
            where('driverId', '==', 'driver_mohammad'),
-           where('message', '==', `بازدید جدید برای کافه ${cafe.name} در تاریخ امروز اضافه شد`),
+           where('message', '==', msg),
            where('read', '==', false)
          );
          const existingNotifs = await getDocs(q);
          if (existingNotifs.empty) {
             await addDoc(collection(db, 'notifications'), {
                 driverId: 'driver_mohammad',
-                message: `بازدید جدید برای کافه ${cafe.name} در تاریخ امروز اضافه شد`,
+                message: msg,
                 createdAt: Date.now(),
                 read: false
             });
@@ -454,29 +486,36 @@ export default function App() {
           setIsAddingCafeMode(false);
           setNewCafeCoords(null);
         }}
-        driverName={driverStatus?.name || 'آقای باغبان'}
+        darkMode={darkMode}
+        toggleDarkMode={toggleDarkMode}
       />
 
-      {currentRole === 'driver' && notifications.map(n => (
-         <div key={n.id} className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn" id="notification_popup_modal">
-             <div className="bg-white p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-slate-200">
-                <h3 className="font-black text-slate-800 text-lg mb-4 flex items-center gap-2">
-                    اعلامیه جدید
+      {currentRole === 'driver' && notifications.length > 0 && (
+         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn" id="driver_notification_popup_modal">
+             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-slate-200 dark:border-slate-800 text-right rtl">
+                <h3 className="font-black text-slate-800 dark:text-white text-lg mb-4 flex items-center gap-2">
+                    <Bell className="w-5 h-5 text-orange-600 animate-bounce" />
+                    <span>برنامه‌ریزی بازدید جدید</span>
                 </h3>
-                <div className="space-y-3 text-sm text-slate-600">
-                    <p>{n.message}</p>
+                <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 font-medium">
+                    <p>{notifications[0].message}</p>
                 </div>
                 <button 
                   onClick={async () => {
-                      await updateDoc(doc(db, 'notifications', n.id), { read: true });
+                      const notifId = notifications[0].id;
+                      try {
+                        await updateDoc(doc(db, 'notifications', notifId), { read: true });
+                      } catch (error) {
+                        console.error("Error updating notification status:", error);
+                      }
                   }} 
-                  className="mt-6 w-full bg-orange-600 text-white font-bold py-3 rounded-2xl hover:bg-orange-700 transition-all cursor-pointer"
+                  className="mt-6 w-full bg-orange-600 text-white font-bold py-3 rounded-2xl hover:bg-orange-700 transition-all cursor-pointer text-xs"
                 >
-                  بستن
+                  بستن و تایید خوانده شد
                 </button>
              </div>
          </div>
-      ))}
+      )}
 
       {/* Main App Body Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 flex flex-col gap-6">
@@ -588,6 +627,8 @@ export default function App() {
                             localStorage.removeItem('isAdminAuthenticated');
                           }}
                           activeDate={activeDate}
+                          darkMode={darkMode}
+                          toggleDarkMode={toggleDarkMode}
                         />
                       )
                     ) : (
@@ -602,6 +643,8 @@ export default function App() {
                         onCafeSelect={handleCafeSelect}
                         setUserLocation={setUserLocation}
                         activeDate={activeDate}
+                        darkMode={darkMode}
+                        toggleDarkMode={toggleDarkMode}
                       />
                     )}
                   </motion.div>
@@ -618,11 +661,7 @@ export default function App() {
       {/* Elegant Footer block */}
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400 font-medium" id="app_footer">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2.5">
-          <p className="rtl text-right">طراحی شده برای بازاریابی و توزیع هولدر لیوان - شرکت کارتن‌سازی محمد دزفول © ۲۰۲۶</p>
-          <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100 font-mono text-[10px]">
-            <MessageSquareCode className="w-3.5 h-3.5 text-orange-600" />
-            <span>AI Studio Active Database Connection</span>
-          </div>
+          <p className="rtl text-right">طراحی شده برای بازاریابی و توزیع کارتن - شرکت کارتن‌سازی محمد دزفول © ۲۰۲۶</p>
         </div>
       </footer>
 

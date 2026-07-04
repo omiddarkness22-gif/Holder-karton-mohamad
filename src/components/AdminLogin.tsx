@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Key, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 interface AdminLoginProps {
   onSuccess: () => void;
@@ -10,12 +12,26 @@ export default function AdminLogin({ onSuccess, onBackToDriver }: AdminLoginProp
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState('');
   const [showPasscode, setShowPasscode] = useState(false);
+  const [dbPassword, setDbPassword] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchPassword = async () => {
+      const docRef = doc(db, 'settings', 'auth');
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists()) {
+        setDbPassword(docSnap.data().passcode);
+      } else {
+        // Initialize with default
+        await setDoc(docRef, { passcode: '123456' });
+        setDbPassword('123456');
+      }
+    };
+    fetchPassword();
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const correctPasscode = (import.meta as any).env.VITE_ADMIN_PASSCODE || '1234';
-
-    if (passcode === correctPasscode) {
+    if (dbPassword && passcode === dbPassword) {
       localStorage.setItem('isAdminAuthenticated', 'true');
       onSuccess();
     } else {
@@ -88,10 +104,6 @@ export default function AdminLogin({ onSuccess, onBackToDriver }: AdminLoginProp
         <ArrowLeft className="w-3.5 h-3.5" />
         <span>بازگشت به پنل راننده</span>
       </button>
-
-      <div className="mt-8 text-[10px] text-slate-400 font-bold bg-slate-50 px-3 py-1 rounded-full border border-slate-100 font-sans">
-        رمز پیش‌فرض: <span className="font-extrabold text-orange-600">۱۲۳۴</span>
-      </div>
     </div>
   );
 }

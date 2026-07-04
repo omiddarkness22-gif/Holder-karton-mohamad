@@ -180,7 +180,7 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
     
     salesReports.forEach((r) => {
       const pId = r.productId || 'unknown';
-      const pName = r.productName || 'هولدر عمومی';
+      const pName = r.productName || 'کارتن عمومی';
 
       if (!prodMap[pId]) {
         prodMap[pId] = {
@@ -266,7 +266,7 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
         timeStr,
         `"${r.cafeName.replace(/"/g, '""')}"`,
         `"${r.driverName.replace(/"/g, '""')}"`,
-        `"${(r.productName || 'هولدر عمومی').replace(/"/g, '""')}"`,
+        `"${(r.productName || 'کارتن عمومی').replace(/"/g, '""')}"`,
         r.quantitySold,
         r.totalPrice,
         `"${(r.notes || '').replace(/"/g, '""')}"`
@@ -363,7 +363,7 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
             <span className="text-xl md:text-2xl font-black text-orange-600 font-sans">
               {toPersianDigits(aggregates.totalQty)}
             </span>
-            <span className="text-[10px] text-orange-700 font-bold">عدد هولدر</span>
+            <span className="text-[10px] text-orange-700 font-bold">عدد کارتن</span>
           </div>
           <div className="text-[10px] text-orange-600 mt-3 flex items-center gap-1 font-bold">
             <Package className="w-3.5 h-3.5" />
@@ -570,7 +570,7 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
 
                   <div className="text-left flex flex-col items-end">
                     <span className="text-xs font-black text-emerald-600 font-sans">{toPersianDigits(formatPrice(cafe.totalRevenue))} <span className="text-[9px] text-slate-400 font-medium">تومان</span></span>
-                    <span className="text-[10px] text-slate-500 font-bold font-sans">{toPersianDigits(cafe.totalQty)} عدد هولدر</span>
+                    <span className="text-[10px] text-slate-500 font-bold font-sans">{toPersianDigits(cafe.totalQty)} عدد کارتن</span>
                   </div>
                 </div>
               ))
@@ -656,7 +656,7 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
 
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-500">
                       <div className="flex items-center gap-2 font-bold">
-                        <span>محصول: <span className="text-slate-700 font-extrabold">{report.productName || 'هولدر عمومی'}</span></span>
+                        <span>محصول: <span className="text-slate-700 font-extrabold">{report.productName || 'کارتن عمومی'}</span></span>
                         <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
                         <span>تعداد: <span className="text-slate-700 font-extrabold">{toPersianDigits(report.quantitySold)} عدد</span></span>
                       </div>

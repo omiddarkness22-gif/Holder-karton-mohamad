@@ -9,6 +9,8 @@ import {
   DriverStatus,
   Product
 } from '../types';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import {
   Plus,
   Trash2,
@@ -60,6 +62,8 @@ interface AdminPanelProps {
   onLockAdmin?: () => void;
   activeDate: string;
   userLocation?: { lat: number; lng: number } | null;
+  darkMode: boolean;
+  toggleDarkMode: () => void;
 }
 
 // Dezful Coordinates as Default for form inputs
@@ -101,9 +105,11 @@ export default function AdminPanel({
   onLockAdmin,
   activeDate,
   userLocation,
+  darkMode,
+  toggleDarkMode,
 }: AdminPanelProps) {
   // Tabs & Navigation State
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'cafes' | 'sales' | 'products' | 'reports'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'cafes' | 'sales' | 'products' | 'reports' | 'settings'>('dashboard');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const tabs = [
@@ -112,6 +118,7 @@ export default function AdminPanel({
     { id: 'sales', label: 'تحلیل جامع فروش دزفول', icon: TrendingUp },
     { id: 'products', label: 'مدیریت محصولات و قیمت‌ها', icon: Package },
     { id: 'reports', label: 'گزارش‌های امروز راننده', icon: Clock3 },
+    { id: 'settings', label: 'تنظیمات امنیتی', icon: Lock },
   ] as const;
 
   // Form state
@@ -135,17 +142,48 @@ export default function AdminPanel({
   // New report popup state
   const [showReportPopup, setShowReportPopup] = useState(false);
   const [latestReport, setLatestReport] = useState<VisitReport | null>(null);
-  const lastReportCount = React.useRef(reports.length);
+  
+  // Track component mount time and report IDs that have already been shown
+  const mountTimeRef = React.useRef(Date.now() - 5000); // 5 second buffer in case of slight clock drift
+  const shownReportIdsRef = React.useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    if (reports.length > lastReportCount.current) {
-      const newReport = reports[0];
-      setLatestReport(newReport);
-      setShowReportPopup(true);
+    if (reports.length === 0) return;
+
+    // Find any report created after the page was mounted
+    // and that hasn't been shown yet in this session
+    const newReports = reports.filter(r => 
+      r.timestamp > mountTimeRef.current && 
+      !shownReportIdsRef.current.has(r.id)
+    );
+
+    if (newReports.length > 0) {
+      const newestReport = newReports[0];
+      const isDismissed = localStorage.getItem(`dismissed_report_${newestReport.id}`) === 'true';
+      
+      if (!isDismissed) {
+        shownReportIdsRef.current.add(newestReport.id);
+        setLatestReport(newestReport);
+        setShowReportPopup(true);
+      }
     }
-    lastReportCount.current = reports.length;
   }, [reports]);
 
+  // Password management
+  const [newPassword, setNewPassword] = useState('');
+  const [updateMsg, setUpdateMsg] = useState('');
+  const [updateErr, setUpdateErr] = useState('');
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await setDoc(doc(db, 'settings', 'auth'), { passcode: newPassword });
+      setUpdateMsg('رمز عبور با موفقیت تغییر کرد');
+      setNewPassword('');
+    } catch (err) {
+      setUpdateErr('خطا در تغییر رمز عبور');
+    }
+  };
   // Product management state
   const [newProdName, setNewProdName] = useState('');
   const [newProdPrice, setNewProdPrice] = useState('');
@@ -378,7 +416,12 @@ export default function AdminPanel({
               <p>توضیحات: <span className="font-medium text-slate-700">{latestReport.notes || 'بدون توضیحات'}</span></p>
             </div>
             <button 
-              onClick={() => setShowReportPopup(false)} 
+              onClick={() => {
+                if (latestReport) {
+                  localStorage.setItem(`dismissed_report_${latestReport.id}`, 'true');
+                }
+                setShowReportPopup(false);
+              }} 
               className="mt-6 w-full bg-orange-600 text-white font-bold py-3 rounded-2xl hover:bg-orange-700 transition-all cursor-pointer"
             >
               بستن
@@ -389,6 +432,32 @@ export default function AdminPanel({
 
       {/* Admin Panel Tabs & Header Bar */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-2 flex flex-col md:flex-row items-center justify-between gap-4" id="admin_tabs_header">
+        {/* ... existing header content ... */}
+        
+        {/* Settings Tab Content */}
+        {activeTab === 'settings' && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 mt-4">
+            <h2 className="text-lg font-bold mb-4">تنظیمات</h2>
+            <div className="space-y-6">
+              <div>
+                <h3 className="font-bold mb-2">تغییر رمز عبور مدیریت</h3>
+                <form onSubmit={handlePasswordChange} className="space-y-4">
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="رمز عبور جدید"
+                    className="w-full p-3 rounded-xl border border-slate-200"
+                    required
+                  />
+                  <button type="submit" className="bg-orange-600 text-white px-4 py-2 rounded-xl">تغییر رمز</button>
+                </form>
+                {updateMsg && <p className="text-green-600 mt-2">{updateMsg}</p>}
+                {updateErr && <p className="text-red-600 mt-2">{updateErr}</p>}
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-3 justify-between w-full md:w-auto">
           <div className="flex items-center gap-2">
             <div className="bg-orange-50 p-2 rounded-xl text-orange-600 border border-orange-100">
@@ -527,7 +596,7 @@ export default function AdminPanel({
 
                 {/* Total Cup Holders sold */}
                 <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between hover:scale-[1.02] transition-all duration-300">
-                  <span className="text-xs font-bold text-slate-400">تعداد هولدر فروخته شده</span>
+                  <span className="text-xs font-bold text-slate-400">تعداد کارتن فروخته شده</span>
                   <div className="flex items-baseline gap-1.5 mt-2">
                     <span className="text-3xl font-black text-orange-700 font-sans">{toPersianDigits(stats.totalHoldersSold)}</span>
                     <span className="text-xs text-slate-400 font-bold">عدد</span>
@@ -1355,7 +1424,7 @@ export default function AdminPanel({
                         type="text"
                         value={newProdName}
                         onChange={(e) => setNewProdName(e.target.value)}
-                        placeholder="مثال: هولدر ۳ تایی"
+                        placeholder="مثال: کارتن ۳ تایی"
                         className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-orange-500 transition-all text-slate-700"
                         required
                       />

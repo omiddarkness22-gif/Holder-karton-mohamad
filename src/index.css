@@ -6,6 +6,12 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+@layer base {
+  body {
+    @apply bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100;
+  }
+}
+
 /* Custom styles for Leaflet to render beautifully and seamlessly */
 .leaflet-container {
   font-family: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
