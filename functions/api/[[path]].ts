@@ -74,11 +74,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       if (method === "POST") {
         const item = await request.json() as any;
         await db.prepare(
-          `INSERT INTO cafes (id, name, lat, lng, assignedDate, visitStatus, lastVisitDate, lastVisitReportId, createdAt) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO cafes (id, name, managerName, phone, address, lat, lng, assignedDate, visitStatus, lastVisitDate, lastVisitReportId, createdAt) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).bind(
           item.id,
           item.name,
+          item.managerName || null,
+          item.phone || null,
+          item.address || null,
           item.lat,
           item.lng,
           item.assignedDate || null,
