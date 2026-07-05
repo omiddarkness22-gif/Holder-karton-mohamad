@@ -422,5 +422,81 @@ export const api = {
     }
     localStorage.setItem('cf_passcode', passcode);
     return true;
+  },
+
+  checkDbStatus: async (): Promise<{
+    isCloudflareMode: boolean;
+    isConnected: boolean;
+    hasBinding: boolean;
+    hasTables: boolean;
+    errorMessage?: string;
+  }> => {
+    const isCf = isCloudflare();
+    if (!isCf) {
+      return {
+        isCloudflareMode: false,
+        isConnected: false,
+        hasBinding: false,
+        hasTables: false,
+        errorMessage: "شما در محیط محلی (Local) یا پیش‌نمایش قرار دارید. ذخیره‌سازی روی مرورگر شما انجام می‌شود."
+      };
+    }
+
+    try {
+      const res = await fetch('/api/cafes');
+      if (res.ok) {
+        return {
+          isCloudflareMode: true,
+          isConnected: true,
+          hasBinding: true,
+          hasTables: true
+        };
+      } else {
+        const text = await res.text().catch(() => '');
+        let errorMsg = '';
+        try {
+          const parsed = JSON.parse(text);
+          errorMsg = parsed.error || '';
+        } catch(e) {
+          errorMsg = text;
+        }
+        
+        if (errorMsg.includes('binding') || errorMsg.includes('undefined') || errorMsg.includes('is missing')) {
+          return {
+            isCloudflareMode: true,
+            isConnected: true,
+            hasBinding: false,
+            hasTables: false,
+            errorMessage: "اتصال برقرار است اما بایندینگ دیتابیس (D1 Database Binding) در تنظیمات Cloudflare Pages انجام نشده است. لطفا در پنل کلادفلر خود وارد مسیر Settings > Functions شده و بخش D1 database bindings را با متغیر DB به دیتابیس متصل کنید."
+          };
+        }
+        
+        if (errorMsg.includes('no such table')) {
+          return {
+            isCloudflareMode: true,
+            isConnected: true,
+            hasBinding: true,
+            hasTables: false,
+            errorMessage: "دیتابیس متصل است اما جدول‌ها هنوز ساخته نشده‌اند. لطفا فایل schema.sql را با ابزار wrangler d1 یا کنسول کلادفلر روی دیتابیس خود اجرا کنید تا جدول‌ها ساخته شوند."
+          };
+        }
+
+        return {
+          isCloudflareMode: true,
+          isConnected: true,
+          hasBinding: true,
+          hasTables: false,
+          errorMessage: errorMsg || `خطای سرور با کد ${res.status}`
+        };
+      }
+    } catch (e: any) {
+      return {
+        isCloudflareMode: true,
+        isConnected: false,
+        hasBinding: false,
+        hasTables: false,
+        errorMessage: "ارتباط با سرور برقرار نشد. وضعیت اینترنت یا آدرس سایت را بررسی کنید."
+      };
+    }
   }
 };
