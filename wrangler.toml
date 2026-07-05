@@ -1,0 +1,11 @@
+# wrangler.toml
+# Cloudflare Pages Configuration
+
+# This file configures your Cloudflare Pages deployment.
+# When you push this to your GitHub repository, Cloudflare Pages will automatically
+# read this file and bind your D1 database to the functions.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "holderdb"
+database_id = "70a585ea-b7c0-4b71-85a6-669d6e6c2467"
