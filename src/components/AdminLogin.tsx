@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Key, ArrowLeft, Eye, EyeOff } from 'lucide-react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { api } from '../api';
 
 interface AdminLoginProps {
   onSuccess: () => void;
@@ -16,13 +15,11 @@ export default function AdminLogin({ onSuccess, onBackToDriver }: AdminLoginProp
 
   useEffect(() => {
     const fetchPassword = async () => {
-      const docRef = doc(db, 'settings', 'auth');
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        setDbPassword(docSnap.data().passcode);
-      } else {
-        // Initialize with default
-        await setDoc(docRef, { passcode: '123456' });
+      try {
+        const code = await api.getPasscode();
+        setDbPassword(code);
+      } catch (e) {
+        console.error("Failed to fetch passcode:", e);
         setDbPassword('123456');
       }
     };

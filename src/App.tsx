@@ -1,20 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { db, OperationType, handleFirestoreError } from './firebase';
-import {
-  collection,
-  doc,
-  onSnapshot,
-  setDoc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  orderBy,
-  writeBatch,
-  getDocs,
-  where
-} from 'firebase/firestore';
 import { Cafe, VisitReport, DriverStatus, Product } from './types';
+import { api } from './api';
 import Header from './components/Header';
 import AdminPanel from './components/AdminPanel';
 import DriverPanel from './components/DriverPanel';
@@ -158,180 +144,82 @@ export default function App() {
     }
   };
 
-  // 1. Subscribe to Firestore Collections in Real-time
-  useEffect(() => {
-    // A. Subscribe to Cafes
-    const cafesQuery = query(collection(db, 'cafes'), orderBy('createdAt', 'desc'));
-    const unsubscribeCafes = onSnapshot(cafesQuery, async (snapshot) => {
-      const fetchedCafes: Cafe[] = [];
-      snapshot.forEach((doc) => {
-        fetchedCafes.push({ id: doc.id, ...doc.data() } as Cafe);
-      });
-
-      // Seeding database on first run if empty
+  // 1. Fetch from Cloudflare D1 Database with automatic polling
+  const loadData = async () => {
+    try {
+      let fetchedCafes = await api.getCafes();
+      // Auto-seed if database has no cafes
       if (fetchedCafes.length === 0) {
-        console.log('Seeding initial cafes to Firestore...');
-        const batch = writeBatch(db);
-        SEED_CAFES.forEach((seed) => {
-          const newDocRef = doc(collection(db, 'cafes'));
-          batch.set(newDocRef, {
-            ...seed,
-            assignedDate: null,
-            visitStatus: 'pending',
-            lastVisitDate: null,
-            createdAt: Date.now(),
-          });
-        });
-        try {
-          await batch.commit();
-          console.log('Seeding completed successfully!');
-        } catch (error) {
-          handleFirestoreError(error, OperationType.WRITE, 'cafes');
+        console.log('Seeding initial cafes to D1/LocalStorage...');
+        for (const seed of SEED_CAFES) {
+          await api.addCafe(seed);
         }
-      } else {
-        setCafes(fetchedCafes);
+        fetchedCafes = await api.getCafes();
       }
-      setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'cafes');
-    });
 
-    // B. Subscribe to Reports
-    const reportsQuery = query(collection(db, 'reports'), orderBy('timestamp', 'desc'));
-    const unsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
-      const fetchedReports: VisitReport[] = [];
-      snapshot.forEach((doc) => {
-        fetchedReports.push({ id: doc.id, ...doc.data() } as VisitReport);
-      });
-      setReports(fetchedReports);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'reports');
-    });
-
-    // C. Subscribe to Driver Live Status
-    const driverDocRef = doc(db, 'driverStatus', 'driver_mohammad');
-    const unsubscribeDriver = onSnapshot(driverDocRef, async (docSnap) => {
-      if (docSnap.exists()) {
-        setDriverStatus(docSnap.data() as DriverStatus);
-      } else {
-        // Seed initial driver status document
-        console.log('Seeding driver status document to Firestore...');
-        const initialDriver: DriverStatus = {
-          id: 'driver_mohammad',
-          name: 'محمد دزفولی',
-          lat: 32.3855,
-          lng: 48.4065,
-          lastActive: Date.now(),
-          isSharingLocation: false,
-        };
-        try {
-          await setDoc(docRef, initialDriver);
-        } catch (error) {
-          handleFirestoreError(error, OperationType.CREATE, 'driverStatus/driver_mohammad');
-        }
-      }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'driverStatus/driver_mohammad');
-    });
-
-    // D. Subscribe to Products in Real-time
-    const productsQuery = query(collection(db, 'products'), orderBy('createdAt', 'asc'));
-    const unsubscribeProducts = onSnapshot(productsQuery, async (snapshot) => {
-      const fetchedProducts: Product[] = [];
-      snapshot.forEach((doc) => {
-        fetchedProducts.push({ id: doc.id, ...doc.data() } as Product);
-      });
-
-      // Seeding initial products if database has none
+      let fetchedProducts = await api.getProducts();
+      // Auto-seed if database has no products
       if (fetchedProducts.length === 0) {
-        console.log('Seeding initial products to Firestore...');
-        const batch = writeBatch(db);
-        SEED_PRODUCTS.forEach((seed) => {
-          const newDocRef = doc(collection(db, 'products'));
-          batch.set(newDocRef, {
-            ...seed,
-            createdAt: Date.now(),
-          });
-        });
-        try {
-          await batch.commit();
-          console.log('Product seeding completed successfully!');
-        } catch (error) {
-          handleFirestoreError(error, OperationType.WRITE, 'products');
+        console.log('Seeding initial products to D1/LocalStorage...');
+        for (const seed of SEED_PRODUCTS) {
+          await api.addProduct(seed);
         }
-      } else {
-        setProducts(fetchedProducts);
+        fetchedProducts = await api.getProducts();
       }
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'products');
-    });
 
-    // E. Subscribe to Notifications in Real-time for driver
-    const notificationsQuery = query(
-      collection(db, 'notifications'),
-      where('driverId', '==', 'driver_mohammad'),
-      where('read', '==', false)
-    );
-    const unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
-      const fetchedNotifications: any[] = [];
-      snapshot.forEach((doc) => {
-        fetchedNotifications.push({ id: doc.id, ...doc.data() });
-      });
-      setNotifications(fetchedNotifications);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'notifications');
-    });
+      const fetchedReports = await api.getReports();
+      const fetchedDriver = await api.getDriverStatus();
+      const fetchedNotifs = await api.getNotifications();
 
-    return () => {
-      unsubscribeCafes();
-      unsubscribeReports();
-      unsubscribeDriver();
-      unsubscribeProducts();
-      unsubscribeNotifications();
-    };
+      setCafes(fetchedCafes);
+      setReports(fetchedReports);
+      setProducts(fetchedProducts);
+      setDriverStatus(fetchedDriver);
+      setNotifications(fetchedNotifs);
+    } catch (e) {
+      console.error("Error fetching database tables:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+    // 10 second polling interval for cross-device state sync
+    const interval = setInterval(loadData, 10000);
+    return () => clearInterval(interval);
   }, []);
-
-  const docRef = doc(db, 'driverStatus', 'driver_mohammad');
 
   // 2. Admin operations
   const handleAddCafe = async (cafeData: Omit<Cafe, 'id' | 'createdAt' | 'visitStatus' | 'lastVisitDate' | 'assignedDate'>) => {
-    const newDocRef = doc(collection(db, 'cafes'));
-    const newCafe: Cafe = {
-      ...cafeData,
-      id: newDocRef.id,
-      assignedDate: null,
-      visitStatus: 'pending',
-      lastVisitDate: null,
-      createdAt: Date.now(),
-    };
     try {
-      await setDoc(newDocRef, newCafe);
+      const newCafe = await api.addCafe(cafeData);
+      setCafes(prev => [newCafe, ...prev]);
+      setSelectedCafeId(newCafe.id);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `cafes/${newCafe.id}`);
+      console.error("Error adding cafe:", error);
     }
-    setSelectedCafeId(newCafe.id);
   };
 
   const handleDeleteCafe = async (cafeId: string) => {
     try {
-      await deleteDoc(doc(db, 'cafes', cafeId));
+      await api.deleteCafe(cafeId);
+      setCafes(prev => prev.filter((c) => c.id !== cafeId));
       
       // Proactively clean up any notifications that refer to non-existent cafes
       const remainingCafes = cafes.filter((c) => c.id !== cafeId);
-      const q = query(collection(db, 'notifications'), where('driverId', '==', 'driver_mohammad'), where('read', '==', false));
-      const snapshot = await getDocs(q);
-      
-      for (const docSnapshot of snapshot.docs) {
-        const data = docSnapshot.data();
+      const currentNotifs = await api.getNotifications();
+      for (const notif of currentNotifs) {
         // If a notification doesn't match ANY of the remaining cafes, it's an orphan
-        const isOrphan = !remainingCafes.some((c) => data.message?.includes(c.name));
-        
+        const isOrphan = !remainingCafes.some((c) => notif.message?.includes(c.name));
         if (isOrphan) {
-          await deleteDoc(doc(db, 'notifications', docSnapshot.id));
+          await api.deleteNotification(notif.id);
         }
       }
+      const updatedNotifs = await api.getNotifications();
+      setNotifications(updatedNotifs);
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `cafes/${cafeId}`);
+      console.error("Error deleting cafe:", error);
     }
     if (selectedCafeId === cafeId) {
       setSelectedCafeId(null);
@@ -342,120 +230,95 @@ export default function App() {
     const cafe = cafes.find((c) => c.id === cafeId);
     if (!cafe) return;
 
-    const visitStatus = 'pending'; // Reset status back to pending when assigned
-
     try {
-      await updateDoc(doc(db, 'cafes', cafeId), {
+      await api.updateCafe(cafeId, {
         assignedDate: date,
-        visitStatus,
+        visitStatus: 'pending',
       });
+      
+      setCafes(prev => prev.map(c => c.id === cafeId ? { ...c, assignedDate: date, visitStatus: 'pending' } : c));
 
       // Add Notification if assigned to any date
       if (date) {
          const dateLabel = getPersianDateString(date);
          const msg = `بازدید جدید برای کافه "${cafe.name}" در تاریخ ${dateLabel} به برنامه شما اضافه شد.`;
          
-         const q = query(
-           collection(db, 'notifications'),
-           where('driverId', '==', 'driver_mohammad'),
-           where('message', '==', msg),
-           where('read', '==', false)
-         );
-         const existingNotifs = await getDocs(q);
-         if (existingNotifs.empty) {
-            await addDoc(collection(db, 'notifications'), {
-                driverId: 'driver_mohammad',
-                message: msg,
-                createdAt: Date.now(),
-                read: false
-            });
+         const currentNotifs = await api.getNotifications();
+         const exists = currentNotifs.some(n => n.message === msg && !n.read);
+         if (!exists) {
+            const newNotif = await api.addNotification('driver_mohammad', msg);
+            setNotifications(prev => [...prev, newNotif]);
          }
       }
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `cafes/${cafeId}`);
+      console.error("Error assigning cafe date:", error);
     }
   };
 
   // 2B. Admin Product operations
   const handleAddProduct = async (productData: Omit<Product, 'id' | 'createdAt'>) => {
-    const newDocRef = doc(collection(db, 'products'));
-    const newProduct: Product = {
-      ...productData,
-      id: newDocRef.id,
-      createdAt: Date.now(),
-    };
     try {
-      await setDoc(newDocRef, newProduct);
+      const newProduct = await api.addProduct(productData);
+      setProducts(prev => [...prev, newProduct]);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `products/${newProduct.id}`);
+      console.error("Error adding product:", error);
     }
   };
 
   const handleUpdateProduct = async (productId: string, productData: Partial<Omit<Product, 'id' | 'createdAt'>>) => {
     try {
-      await updateDoc(doc(db, 'products', productId), productData);
+      await api.updateProduct(productId, productData);
+      setProducts(prev => prev.map(p => p.id === productId ? { ...p, ...productData } : p));
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `products/${productId}`);
+      console.error("Error updating product:", error);
     }
   };
 
   const handleDeleteProduct = async (productId: string) => {
     try {
-      await deleteDoc(doc(db, 'products', productId));
+      await api.deleteProduct(productId);
+      setProducts(prev => prev.filter(p => p.id !== productId));
     } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `products/${productId}`);
+      console.error("Error deleting product:", error);
     }
   };
 
   // 3. Driver operations
   const handleUpdateDriverLocation = async (lat: number, lng: number, isSharing: boolean) => {
     try {
-      await updateDoc(doc(db, 'driverStatus', 'driver_mohammad'), {
+      await api.updateDriverStatus({
         lat,
         lng,
         isSharingLocation: isSharing,
         lastActive: Date.now(),
       });
+      setDriverStatus(prev => prev ? { ...prev, lat, lng, isSharingLocation: isSharing, lastActive: Date.now() } : null);
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, 'driverStatus/driver_mohammad');
+      console.error("Error updating driver status:", error);
     }
   };
 
   const handleSubmitReport = async (reportData: Omit<VisitReport, 'id' | 'timestamp'>) => {
-    // A. Add new report doc
-    const reportsColl = collection(db, 'reports');
-    const newReportRef = doc(reportsColl);
-    const reportTimestamp = Date.now();
-    const newReport: any = {
-      ...reportData,
-      id: newReportRef.id,
-      timestamp: reportTimestamp,
-    };
-
-    // Clean up optional fields that might be undefined to avoid Firestore errors
-    Object.keys(newReport).forEach(key => {
-        if (newReport[key] === undefined) {
-            delete newReport[key];
-        }
-    });
-
-    console.log("Saving report:", newReport);
     try {
-      await setDoc(newReportRef, newReport);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `reports/${newReport.id}`);
-    }
+      // A. Add new report
+      const newReport = await api.addReport(reportData);
+      setReports(prev => [newReport, ...prev]);
 
-    // B. Update Cafe record with visit status & date
-    const cafeDocRef = doc(db, 'cafes', reportData.cafeId);
-    try {
-      await updateDoc(cafeDocRef, {
+      // B. Update Cafe record with visit status & date
+      await api.updateCafe(reportData.cafeId, {
         visitStatus: reportData.status,
         lastVisitDate: activeDate,
-        lastVisitReportId: newReportRef.id,
+        lastVisitReportId: newReport.id,
       });
+
+      setCafes(prev => prev.map(c => c.id === reportData.cafeId ? {
+        ...c,
+        visitStatus: reportData.status,
+        lastVisitDate: activeDate,
+        lastVisitReportId: newReport.id
+      } : c));
     } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `cafes/${reportData.cafeId}`);
+      console.error("Error submitting visit report:", error);
     }
   };
 
@@ -504,7 +367,8 @@ export default function App() {
                   onClick={async () => {
                       const notifId = notifications[0].id;
                       try {
-                        await updateDoc(doc(db, 'notifications', notifId), { read: true });
+                        await api.updateNotification(notifId, { read: true });
+                        setNotifications(prev => prev.filter(n => n.id !== notifId));
                       } catch (error) {
                         console.error("Error updating notification status:", error);
                       }

@@ -9,8 +9,7 @@ import {
   DriverStatus,
   Product
 } from '../types';
-import { doc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { api } from '../api';
 import {
   Plus,
   Trash2,
@@ -177,7 +176,7 @@ export default function AdminPanel({
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await setDoc(doc(db, 'settings', 'auth'), { passcode: newPassword });
+      await api.setPasscode(newPassword);
       setUpdateMsg('رمز عبور با موفقیت تغییر کرد');
       setNewPassword('');
     } catch (err) {
