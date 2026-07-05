@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Shield, Truck, Sparkles, MapPin, Moon, Sun } from 'lucide-react';
+import { Shield, Truck, Sparkles, MapPin, Moon, Sun, Database } from 'lucide-react';
 
 interface HeaderProps {
   currentRole: 'admin' | 'driver';
@@ -9,6 +9,10 @@ interface HeaderProps {
 }
 
 export default function Header({ currentRole, onRoleChange, darkMode, toggleDarkMode }: HeaderProps) {
+  const isProd = !window.location.hostname.includes('run.app') && 
+                 !window.location.hostname.includes('localhost') && 
+                 !window.location.hostname.includes('127.0.0.1');
+
   return (
     <header id="app_header" className="h-16 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-[100] px-6 shadow-sm rtl">
       <div className="max-w-7xl mx-auto h-full flex items-center justify-between gap-4">
@@ -18,15 +22,27 @@ export default function Header({ currentRole, onRoleChange, darkMode, toggleDark
           <div className="w-8 h-8 md:w-10 md:h-10 bg-orange-600 rounded-lg flex items-center justify-center text-white font-bold text-lg md:text-xl shadow-md shadow-orange-200">
             KM
           </div>
-          <div className="hidden sm:block">
-            <div className="flex items-center gap-1.5">
+          <div>
+            <div className="flex items-center gap-1.5 flex-wrap">
               <h1 className="font-bold text-sm md:text-lg text-slate-800 dark:text-slate-100 tracking-tight">کارتن محمد دزفول</h1>
               <span className="bg-orange-100 text-orange-800 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full flex items-center gap-0.5 border border-orange-200">
                 <Sparkles className="w-2.5 h-2.5" />
                 کارتن
               </span>
+              
+              {isProd ? (
+                <span className="inline-flex items-center gap-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[9px] px-1.5 py-0.5 rounded-md border border-emerald-200 dark:border-emerald-800/60 font-semibold shadow-sm">
+                  <Database className="w-2.5 h-2.5 text-emerald-500 animate-pulse" />
+                  <span>دیتابیس متصل (D1)</span>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 text-[9px] px-1.5 py-0.5 rounded-md border border-amber-200 dark:border-amber-800/60 font-semibold shadow-sm">
+                  <Database className="w-2.5 h-2.5 text-amber-500" />
+                  <span>آفلاین (Local)</span>
+                </span>
+              )}
             </div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+            <p className="hidden sm:flex text-[10px] text-slate-500 dark:text-slate-400 items-center gap-1 mt-0.5">
               <MapPin className="w-3 h-3 text-orange-600" />
               پنل مدیریت و بازاریابی توزیع
             </p>
