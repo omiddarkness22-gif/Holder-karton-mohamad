@@ -285,10 +285,10 @@ export default function DriverPanel({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 rtl text-right dark:text-white" id="driver_panel_root">
+    <div className="flex flex-col gap-6 rtl text-right dark:text-white" id="driver_panel_root">
       
-      {/* 1. Today's Target List (4 Cols) */}
-      <div className="lg:col-span-4 flex flex-col gap-5">
+      {/* 1. Today's Target List */}
+      <div className="flex flex-col gap-5">
         
         {/* GPS Live Sharing Switcher Card */}
         <div className="bg-gradient-to-br from-orange-50/70 to-amber-50/30 border border-orange-100 rounded-2xl p-4 shadow-sm relative overflow-hidden">
@@ -569,8 +569,8 @@ export default function DriverPanel({
 
       </div>
 
-      {/* 2. Operations & Submit Report Form (8 Cols) */}
-      <div className="lg:col-span-8 flex flex-col gap-6">
+      {/* 2. Operations & Submit Report Form */}
+      <div className="flex flex-col gap-6">
         
         {selectedCafe ? (
           <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm" id="driver_cafe_report_card">

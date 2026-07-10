@@ -430,56 +430,35 @@ export default function AdminPanel({
       )}
 
       {/* Admin Panel Tabs & Header Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 mb-2 flex flex-col md:flex-row items-center justify-between gap-4" id="admin_tabs_header">
-        {/* ... existing header content ... */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-col gap-4" id="admin_tabs_header">
         
-        {/* Settings Tab Content */}
-        {activeTab === 'settings' && (
-          <div className="bg-white p-6 rounded-2xl border border-slate-200 mt-4">
-            <h2 className="text-lg font-bold mb-4">تنظیمات</h2>
-            <div className="space-y-6">
-              <div>
-                <h3 className="font-bold mb-2">تغییر رمز عبور مدیریت</h3>
-                <form onSubmit={handlePasswordChange} className="space-y-4">
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    placeholder="رمز عبور جدید"
-                    className="w-full p-3 rounded-xl border border-slate-200"
-                    required
-                  />
-                  <button type="submit" className="bg-orange-600 text-white px-4 py-2 rounded-xl">تغییر رمز</button>
-                </form>
-                {updateMsg && <p className="text-green-600 mt-2">{updateMsg}</p>}
-                {updateErr && <p className="text-red-600 mt-2">{updateErr}</p>}
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="flex items-center gap-3 justify-between w-full md:w-auto">
+        {/* Row 1: Title & Lock/Logout Button */}
+        <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-2">
-            <div className="bg-orange-50 p-2 rounded-xl text-orange-600 border border-orange-100">
+            <div className="bg-orange-50 p-2 rounded-xl text-orange-600 border border-orange-100 flex-shrink-0">
               <Lock className="w-5 h-5" />
             </div>
             <div>
               <h1 className="text-sm font-black text-slate-800">پنل مدیریت هوشمند دزفول</h1>
-              <p className="text-[10px] text-slate-400 font-medium">کارتن محمد - ردیابی زنده و مدیریت یکپارچه</p>
+              <p className="text-[10px] text-slate-400 font-medium mt-0.5">کارتن محمد - ردیابی زنده و مدیریت یکپارچه</p>
             </div>
           </div>
 
-          {/* Hamburger button for mobile */}
-          <button
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-            className="md:hidden bg-slate-100 hover:bg-slate-200 text-slate-600 p-2 rounded-xl transition-all cursor-pointer border border-slate-200"
-            id="admin_hamburger_btn"
-          >
-            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+          {onLockAdmin && (
+            <button
+              type="button"
+              onClick={onLockAdmin}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 transition-all cursor-pointer border border-slate-200/60 flex-shrink-0"
+              id="header_lock_admin"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-500" />
+              <span>خروج و قفل</span>
+            </button>
+          )}
         </div>
 
-        {/* Desktop Tabs list */}
-        <div className="hidden md:flex items-center bg-slate-100 p-1 rounded-xl">
+        {/* Row 2: Responsive Vertical Tabs List */}
+        <div className="w-full flex flex-col gap-1.5 p-1.5 bg-slate-50 border border-slate-100 rounded-2xl">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -487,84 +466,28 @@ export default function AdminPanel({
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-2 text-xs font-black rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-4 py-2.5 text-xs font-black rounded-xl transition-all flex items-center gap-2.5 cursor-pointer border ${
                   isActive
-                    ? 'bg-white text-slate-800 shadow-sm'
-                    : 'text-slate-500 hover:text-slate-800'
+                    ? 'bg-orange-600 text-white border-orange-600 shadow-sm'
+                    : 'bg-white text-slate-600 border-slate-200/40 hover:bg-slate-100 hover:text-slate-800'
                 }`}
               >
-                <Icon className="w-4 h-4 text-orange-600" />
-                <span>{tab.label}</span>
+                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-orange-500'}`} />
+                <span className="font-extrabold text-right">{tab.label}</span>
               </button>
             );
           })}
         </div>
-
-        {/* Action Buttons: Lock Panel */}
-        <div className="hidden md:flex items-center gap-3">
-          {onLockAdmin && (
-            <button
-              type="button"
-              onClick={onLockAdmin}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-800 transition-all cursor-pointer border border-slate-200/60"
-              id="header_lock_admin"
-            >
-              <Lock className="w-4 h-4 text-slate-500" />
-              <span>خروج و قفل پنل</span>
-            </button>
-          )}
-        </div>
-
-        {/* Mobile dropdown menu */}
-        {isMenuOpen && (
-          <div className="md:hidden w-full flex flex-col bg-slate-50 border border-slate-200 rounded-xl p-2 mt-2 space-y-1 animate-fadeIn">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    setIsMenuOpen(false);
-                  }}
-                  className={`w-full text-right px-4 py-2.5 text-xs font-black rounded-lg transition-all flex items-center gap-2.5 cursor-pointer ${
-                    isActive
-                      ? 'bg-orange-600 text-white'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-orange-600'}`} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-            
-            {onLockAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  onLockAdmin();
-                  setIsMenuOpen(false);
-                }}
-                className="w-full text-right px-4 py-2.5 text-xs font-black rounded-lg transition-all flex items-center gap-2.5 text-red-600 hover:bg-red-50 cursor-pointer border-t border-slate-200/60 mt-1"
-              >
-                <Lock className="w-4 h-4 text-red-500" />
-                <span>خروج و قفل پنل</span>
-              </button>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Tab Contents */}
       <div className="w-full" id="admin_tab_contents">
         {activeTab === 'dashboard' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn" id="dashboard_tab_root">
+          <div className="flex flex-col gap-5 animate-fadeIn" id="dashboard_tab_root">
             {/* Stats Dashboard on top - full width inside tab */}
-            <div className="lg:col-span-12">
+            <div>
               {/* Statistics Widgets Banner - Beautiful Bento Cells */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-2" id="stats_dashboard">
+              <div className="grid grid-cols-2 gap-4 mb-2" id="stats_dashboard">
                 {/* Total Target today */}
                 <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between hover:scale-[1.02] transition-all duration-300">
                   <span className="text-xs font-bold text-slate-400">مجموع اهداف امروز</span>
@@ -622,8 +545,8 @@ export default function AdminPanel({
               </div>
             </div>
 
-            {/* Left Column (8 of 12 columns): Selected Cafe details */}
-            <div className="lg:col-span-8 flex flex-col gap-6">
+            {/* Left Column: Selected Cafe details */}
+            <div className="flex flex-col gap-6">
               {/* Selected Cafe Operations details */}
               {selectedCafe ? (
                 <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm" id="selected_cafe_details">
@@ -818,8 +741,8 @@ export default function AdminPanel({
               )}
             </div>
 
-            {/* Right Column (4 of 12 columns): Tracking card */}
-            <div className="lg:col-span-4 flex flex-col gap-6">
+            {/* Right Column: Tracking card */}
+            <div className="flex flex-col gap-6">
               {/* Real-time Driver Tracker Summary */}
               <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-1.5 h-full bg-orange-600"></div>
@@ -880,9 +803,9 @@ export default function AdminPanel({
         )}
 
         {activeTab === 'cafes' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn" id="cafes_tab_root">
-            {/* Cafe list on left (7 cols) */}
-            <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col h-[600px]" id="cafe_bank_container">
+          <div className="flex flex-col gap-6 animate-fadeIn" id="cafes_tab_root">
+            {/* Cafe list */}
+            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm flex flex-col h-[450px]" id="cafe_bank_container">
               {/* Header & Controls */}
               <div className="p-4 border-b border-slate-100 flex flex-col gap-3">
                 <div className="flex items-center justify-between">
@@ -1040,8 +963,8 @@ export default function AdminPanel({
               </div>
             </div>
 
-            {/* Add/Edit/View panel on right (5 cols) */}
-            <div className="lg:col-span-5 flex flex-col gap-6">
+            {/* Add/Edit/View panel */}
+            <div className="flex flex-col gap-6">
               {isAddingCafeMode ? (
                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5">
                   <div className="border-b border-slate-100 pb-3 mb-4">
@@ -1305,10 +1228,10 @@ export default function AdminPanel({
               )}
 
               {/* Grid content for product list and addition form */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+              <div className="flex flex-col gap-6">
                 
-                {/* Left side: Products List (7 cols) */}
-                <div className="md:col-span-7 space-y-3">
+                {/* Left side: Products List */}
+                <div className="space-y-3">
                   <h3 className="text-xs font-extrabold text-slate-700 flex items-center gap-1">
                     <Tag className="w-3.5 h-3.5 text-orange-600" />
                     <span>فهرست محصولات فعال در سیستم ({toPersianDigits(products.length)})</span>
@@ -1409,8 +1332,8 @@ export default function AdminPanel({
                   </div>
                 </div>
 
-                {/* Right side: Add Product Form (5 cols) */}
-                <div className="md:col-span-5 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                {/* Right side: Add Product Form */}
+                <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100">
                   <h3 className="text-xs font-extrabold text-slate-700 flex items-center gap-1 mb-3">
                     <PlusCircle className="w-3.5 h-3.5 text-orange-600" />
                     <span>افزودن محصول جدید</span>
@@ -1543,6 +1466,37 @@ export default function AdminPanel({
                       );
                     })
                 )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'settings' && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 animate-fadeIn text-right" id="settings_tab_root">
+            <h2 className="text-sm font-black mb-4 flex items-center gap-2 text-slate-800">
+              <Lock className="w-4 h-4 text-orange-600" />
+              <span>تنظیمات امنیتی پنل مدیریت</span>
+            </h2>
+            <div className="space-y-6">
+              <div className="max-w-md bg-slate-50/50 border border-slate-100 p-5 rounded-2xl">
+                <h3 className="font-bold text-xs mb-3 text-slate-700">تغییر رمز عبور ورود مدیریت</h3>
+                <form onSubmit={handlePasswordChange} className="space-y-4">
+                  <div className="relative">
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="رمز عبور جدید"
+                      className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-orange-500 font-sans text-slate-700"
+                      required
+                    />
+                  </div>
+                  <button type="submit" className="bg-orange-600 hover:bg-orange-700 text-white text-xs font-extrabold px-4 py-2.5 rounded-xl transition-all cursor-pointer shadow-sm shadow-orange-100">
+                    ثبت رمز جدید
+                  </button>
+                </form>
+                {updateMsg && <p className="text-emerald-600 font-bold text-xs mt-3 flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> {updateMsg}</p>}
+                {updateErr && <p className="text-red-600 font-bold text-xs mt-3 flex items-center gap-1"><XCircle className="w-4 h-4" /> {updateErr}</p>}
               </div>
             </div>
           </div>
