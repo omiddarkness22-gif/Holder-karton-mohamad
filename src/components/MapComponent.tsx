@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Cafe, DriverStatus } from '../types';
+import { Navigation } from 'lucide-react';
 
 interface MapComponentProps {
   cafes: Cafe[];
@@ -52,6 +53,15 @@ export default function MapComponent({
   const tempMarkerRef = useRef<L.Marker | null>(null);
 
   const [isLegendOpen, setIsLegendOpen] = useState(false);
+
+  const focusOnDriver = () => {
+    if (mapRef.current && driverLocation) {
+      mapRef.current.setView([driverLocation.lat, driverLocation.lng], 16, {
+        animate: true,
+        duration: 0.8,
+      });
+    }
+  };
 
   const isAddingCafeModeRef = useRef(isAddingCafeMode);
   const onMapClickRef = useRef(onMapClick);
@@ -454,6 +464,18 @@ export default function MapComponent({
       
       {/* Map Legends - Compact and Collapsible to keep map highly visible */}
       <div className="absolute top-3 left-3 z-[999] flex flex-col items-end gap-1.5 font-sans rtl text-right">
+        {driverLocation && (
+          <button
+            type="button"
+            onClick={focusOnDriver}
+            className="bg-white/95 hover:bg-white border border-slate-200 shadow-md px-2.5 py-1.5 rounded-xl text-slate-700 hover:text-blue-600 transition-all duration-200 flex items-center gap-1.5 text-[10px] font-extrabold cursor-pointer"
+            id="btn_focus_driver"
+          >
+            <Navigation className="w-3.5 h-3.5 text-blue-600 fill-blue-600/10 rotate-45" />
+            <span>تمرکز روی راننده</span>
+          </button>
+        )}
+
         {!isLegendOpen ? (
           <button
             type="button"
