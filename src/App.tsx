@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Cafe, VisitReport, DriverStatus, Product } from './types';
+import { Cafe, VisitReport, DriverStatus, Product, DeletionRequest } from './types';
 import { api } from './api';
 import Header from './components/Header';
 import AdminPanel from './components/AdminPanel';
@@ -97,6 +97,7 @@ export default function App() {
   });
   const [cafes, setCafes] = useState<Cafe[]>([]);
   const [reports, setReports] = useState<VisitReport[]>([]);
+  const [deletionRequests, setDeletionRequests] = useState<DeletionRequest[]>([]);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
 
   useEffect(() => {
@@ -170,12 +171,14 @@ export default function App() {
       const fetchedReports = await api.getReports();
       const fetchedDriver = await api.getDriverStatus();
       const fetchedNotifs = await api.getNotifications();
+      const fetchedDeletionRequests = await api.getDeletionRequests();
 
       setCafes(fetchedCafes);
       setReports(fetchedReports);
       setProducts(fetchedProducts);
       setDriverStatus(fetchedDriver);
       setNotifications(fetchedNotifs);
+      setDeletionRequests(fetchedDeletionRequests);
     } catch (e) {
       console.error("Error fetching database tables:", e);
     } finally {
@@ -298,7 +301,34 @@ export default function App() {
     }
   };
 
+  const handleMarkNotificationAsRead = async (id: string) => {
+    try {
+      await api.updateNotification(id, { read: true });
+      setNotifications(prev => prev.filter(n => n.id !== id));
+    } catch (error) {
+      console.error("Error marking notification as read:", error);
+    }
+  };
+
+  const handleMarkAllNotificationsAsRead = async () => {
+    try {
+      for (const notif of notifications) {
+        await api.updateNotification(notif.id, { read: true });
+      }
+      setNotifications([]);
+    } catch (error) {
+      console.error("Error marking all notifications as read:", error);
+    }
+  };
+
   const handleSubmitReport = async (reportData: Omit<VisitReport, 'id' | 'timestamp'>) => {
+    // Prevent duplicate report submissions on the same active date
+    const existing = cafes.find(c => c.id === reportData.cafeId);
+    if (existing && existing.visitStatus !== 'pending') {
+      console.warn("یک گزارش برای این کافه قبلاً ثبت شده است.");
+      return;
+    }
+
     try {
       // A. Add new report
       const newReport = await api.addReport(reportData);
@@ -319,6 +349,95 @@ export default function App() {
       } : c));
     } catch (error) {
       console.error("Error submitting visit report:", error);
+    }
+  };
+
+  const handleDeleteReport = async (reportId: string, cafeId: string) => {
+    try {
+      // 1. Delete from storage
+      await api.deleteReport(reportId);
+      setReports(prev => prev.filter(r => r.id !== reportId));
+
+      // 2. Reset Cafe status to pending
+      await api.updateCafe(cafeId, {
+        visitStatus: 'pending',
+        lastVisitDate: null,
+        lastVisitReportId: null,
+      });
+
+      setCafes(prev => prev.map(c => c.id === cafeId ? {
+        ...c,
+        visitStatus: 'pending',
+        lastVisitDate: null,
+        lastVisitReportId: null
+      } : c));
+
+      // Also clean up any associated deletion requests
+      const currentReqs = await api.getDeletionRequests();
+      const associatedReq = currentReqs.find(r => r.reportId === reportId);
+      if (associatedReq) {
+        await api.updateDeletionRequestStatus(associatedReq.id, 'approved');
+        setDeletionRequests(prev => prev.map(r => r.id === associatedReq.id ? { ...r, status: 'approved' } : r));
+      }
+    } catch (error) {
+      console.error("Error deleting report:", error);
+    }
+  };
+
+  const handleCreateDeletionRequest = async (reportId: string, cafeId: string, reason: string) => {
+    try {
+      const report = reports.find(r => r.id === reportId);
+      if (!report) return;
+      const newReq = await api.addDeletionRequest({
+        reportId,
+        cafeId,
+        cafeName: report.cafeName,
+        driverName: report.driverName,
+        reason
+      });
+      setDeletionRequests(prev => [newReq, ...prev]);
+    } catch (e) {
+      console.error("Error creating deletion request:", e);
+    }
+  };
+
+  const handleApproveDeletionRequest = async (requestId: string) => {
+    try {
+      const req = deletionRequests.find(r => r.id === requestId);
+      if (!req) return;
+
+      // 1. Update status to approved
+      await api.updateDeletionRequestStatus(requestId, 'approved');
+      setDeletionRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'approved' } : r));
+
+      // 2. Delete the actual report
+      await api.deleteReport(req.reportId);
+      setReports(prev => prev.filter(r => r.id !== req.reportId));
+
+      // 3. Reset cafe status to pending
+      await api.updateCafe(req.cafeId, {
+        visitStatus: 'pending',
+        lastVisitDate: null,
+        lastVisitReportId: null,
+      });
+
+      setCafes(prev => prev.map(c => c.id === req.cafeId ? {
+        ...c,
+        visitStatus: 'pending',
+        lastVisitDate: null,
+        lastVisitReportId: null
+      } : c));
+    } catch (e) {
+      console.error("Error approving deletion request:", e);
+    }
+  };
+
+  const handleRejectDeletionRequest = async (requestId: string) => {
+    try {
+      await api.updateDeletionRequestStatus(requestId, 'rejected');
+      setDeletionRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'rejected' } : r));
+    } catch (e) {
+      console.error("Error rejecting deletion request:", e);
     }
   };
 
@@ -353,32 +472,46 @@ export default function App() {
         toggleDarkMode={toggleDarkMode}
       />
 
+      {/* Floating non-intrusive Toast notifications list */}
       {currentRole === 'driver' && notifications.length > 0 && (
-         <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn" id="driver_notification_popup_modal">
-             <div className="bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-2xl max-w-sm w-full border border-slate-200 dark:border-slate-800 text-right rtl">
-                <h3 className="font-black text-slate-800 dark:text-white text-lg mb-4 flex items-center gap-2">
-                    <Bell className="w-5 h-5 text-orange-600 animate-bounce" />
-                    <span>برنامه‌ریزی بازدید جدید</span>
-                </h3>
-                <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300 font-medium">
-                    <p>{notifications[0].message}</p>
+        <div className="fixed top-20 right-4 z-[9999] flex flex-col gap-2.5 max-w-sm w-full pointer-events-auto rtl text-right" id="driver_notification_toasts">
+          <AnimatePresence>
+            {notifications.slice(0, 2).map((notif) => (
+              <motion.div
+                key={notif.id}
+                initial={{ opacity: 0, x: 50, y: -10 }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={{ opacity: 0, x: 50 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                className="bg-white dark:bg-slate-900 border-r-4 border-orange-500 rounded-2xl shadow-xl border border-slate-200/80 dark:border-slate-800 p-4 flex items-start gap-3 relative overflow-hidden"
+              >
+                <div className="p-2 bg-orange-50 dark:bg-orange-950/40 text-orange-600 rounded-xl shrink-0 mt-0.5">
+                  <Bell className="w-4 h-4 animate-swing" />
                 </div>
-                <button 
-                  onClick={async () => {
-                      const notifId = notifications[0].id;
-                      try {
-                        await api.updateNotification(notifId, { read: true });
-                        setNotifications(prev => prev.filter(n => n.id !== notifId));
-                      } catch (error) {
-                        console.error("Error updating notification status:", error);
-                      }
-                  }} 
-                  className="mt-6 w-full bg-orange-600 text-white font-bold py-3 rounded-2xl hover:bg-orange-700 transition-all cursor-pointer text-xs"
-                >
-                  بستن و تایید خوانده شد
-                </button>
-             </div>
-         </div>
+                <div className="flex-1 min-w-0 pr-1 text-right">
+                  <h4 className="font-extrabold text-[11px] text-orange-700 dark:text-orange-400">اعلان جدید توزیع</h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-300 font-bold mt-1 leading-relaxed">{notif.message}</p>
+                  <div className="flex items-center justify-end gap-2 mt-3">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await api.updateNotification(notif.id, { read: true });
+                          setNotifications(prev => prev.filter(n => n.id !== notif.id));
+                        } catch (error) {
+                          console.error("Error updating notification status:", error);
+                        }
+                      }}
+                      className="bg-orange-50 hover:bg-orange-100 dark:bg-orange-950/20 dark:hover:bg-orange-900/30 text-orange-700 dark:text-orange-400 font-extrabold text-[10px] px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+                    >
+                      تایید و حذف اعلان
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
       )}
 
       {/* Main App Body Container */}
@@ -474,6 +607,9 @@ export default function App() {
                           reports={reports}
                           driverStatus={driverStatus}
                           products={products}
+                          deletionRequests={deletionRequests}
+                          onApproveDeletionRequest={handleApproveDeletionRequest}
+                          onRejectDeletionRequest={handleRejectDeletionRequest}
                           onAddProduct={handleAddProduct}
                           onUpdateProduct={handleUpdateProduct}
                           onDeleteProduct={handleDeleteProduct}
@@ -482,6 +618,7 @@ export default function App() {
                           onAddCafe={handleAddCafe}
                           onDeleteCafe={handleDeleteCafe}
                           onAssignDate={handleAssignDate}
+                          onDeleteReport={handleDeleteReport}
                           isAddingCafeMode={isAddingCafeMode}
                           setIsAddingCafeMode={setIsAddingCafeMode}
                           newCafeCoords={newCafeCoords}
@@ -501,8 +638,14 @@ export default function App() {
                         reports={reports}
                         driverStatus={driverStatus}
                         products={products}
+                        deletionRequests={deletionRequests}
+                        notifications={notifications}
+                        onMarkNotificationAsRead={handleMarkNotificationAsRead}
+                        onMarkAllNotificationsAsRead={handleMarkAllNotificationsAsRead}
+                        onCreateDeletionRequest={handleCreateDeletionRequest}
                         onUpdateDriverLocation={handleUpdateDriverLocation}
                         onSubmitReport={handleSubmitReport}
+                        onDeleteReport={handleDeleteReport}
                         selectedCafeId={selectedCafeId}
                         onCafeSelect={handleCafeSelect}
                         setUserLocation={setUserLocation}

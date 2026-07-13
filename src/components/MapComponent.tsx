@@ -65,6 +65,8 @@ export default function MapComponent({
 
   const isAddingCafeModeRef = useRef(isAddingCafeMode);
   const onMapClickRef = useRef(onMapClick);
+  const onCafeSelectRef = useRef(onCafeSelect);
+  const lastSelectedCafeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     isAddingCafeModeRef.current = isAddingCafeMode;
@@ -73,6 +75,10 @@ export default function MapComponent({
   useEffect(() => {
     onMapClickRef.current = onMapClick;
   }, [onMapClick]);
+
+  useEffect(() => {
+    onCafeSelectRef.current = onCafeSelect;
+  }, [onCafeSelect]);
 
   // Invalidate map size on mounts, layout changes, and cafe updates to guarantee markers render correctly
   useEffect(() => {
@@ -165,7 +171,7 @@ export default function MapComponent({
       }
     }, 200);
 
-    // Click handler for Admin adding cafe
+    // Click handler for Admin adding cafe and deselection
     map.on('click', (e: L.LeafletMouseEvent) => {
       if (isAddingCafeModeRef.current && onMapClickRef.current) {
         const { lat, lng } = e.latlng;
@@ -189,7 +195,24 @@ export default function MapComponent({
           });
           tempMarkerRef.current = L.marker(e.latlng, { icon: tempIcon }).addTo(map);
         }
+      } else {
+        // If not in adding cafe mode, clicking empty map space deselects the cafe
+        if (onCafeSelectRef.current) {
+          onCafeSelectRef.current(null);
+        }
       }
+    });
+
+    // Handle popupclose to clear selected cafe if no other popup is open
+    map.on('popupclose', () => {
+      setTimeout(() => {
+        if (mapRef.current) {
+          const hasOpenPopup = mapRef.current.getContainer().querySelector('.leaflet-popup') !== null;
+          if (!hasOpenPopup && onCafeSelectRef.current) {
+            onCafeSelectRef.current(null);
+          }
+        }
+      }, 100);
     });
 
     return () => {
@@ -375,14 +398,23 @@ export default function MapComponent({
   // 3. Zoom/Center to Selected Cafe
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !selectedCafeId) return;
+    if (!map) return;
 
-    const selectedCafe = cafes.find((c) => c.id === selectedCafeId);
-    if (selectedCafe) {
-      map.setView([selectedCafe.lat, selectedCafe.lng], 16, {
-        animate: true,
-        duration: 0.8,
-      });
+    if (!selectedCafeId) {
+      lastSelectedCafeIdRef.current = null;
+      return;
+    }
+
+    // Only center/zoom when the selectedCafeId has actually changed!
+    if (selectedCafeId !== lastSelectedCafeIdRef.current) {
+      const selectedCafe = cafes.find((c) => c.id === selectedCafeId);
+      if (selectedCafe) {
+        map.setView([selectedCafe.lat, selectedCafe.lng], 16, {
+          animate: true,
+          duration: 0.8,
+        });
+      }
+      lastSelectedCafeIdRef.current = selectedCafeId;
     }
   }, [selectedCafeId, cafes]);
 

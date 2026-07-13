@@ -1,4 +1,4 @@
-import { Cafe, VisitReport, Product, DriverStatus } from './types';
+import { Cafe, VisitReport, Product, DriverStatus, DeletionRequest } from './types';
 
 // Helper to generate IDs
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -192,6 +192,22 @@ export const api = {
     return newReport;
   },
 
+  deleteReport: async (id: string): Promise<boolean> => {
+    if (isCloudflare()) {
+      try {
+        const res = await fetch(`/api/reports/${id}`, { method: 'DELETE' });
+        if (res.ok) return true;
+      } catch (e) {
+        console.error("Cloudflare API error:", e);
+      }
+    }
+
+    const current = getLocal<VisitReport[]>('cf_reports', []);
+    const filtered = current.filter(r => r.id !== id);
+    setLocal('cf_reports', filtered);
+    return true;
+  },
+
   // --- PRODUCTS ---
   getProducts: async (): Promise<Product[]> => {
     if (isCloudflare()) {
@@ -324,7 +340,7 @@ export const api = {
         console.error("Cloudflare API error:", e);
       }
     }
-    return getLocal<any[]>('cf_notifications', []);
+    return getLocal<any[]>('cf_notifications', []).filter(n => !n.read);
   },
 
   addNotification: async (driverId: string, message: string): Promise<any> => {
@@ -388,6 +404,66 @@ export const api = {
     const current = getLocal<any[]>('cf_notifications', []);
     const filtered = current.filter(n => n.id !== id);
     setLocal('cf_notifications', filtered);
+    return true;
+  },
+
+  // --- DELETION REQUESTS ---
+  getDeletionRequests: async (): Promise<DeletionRequest[]> => {
+    if (isCloudflare()) {
+      try {
+        const res = await fetch('/api/deletion-requests');
+        if (res.ok) return await res.json();
+      } catch (e) {
+        console.error("Cloudflare API error:", e);
+      }
+    }
+    return getLocal<DeletionRequest[]>('cf_deletion_requests', []);
+  },
+
+  addDeletionRequest: async (req: Omit<DeletionRequest, 'id' | 'timestamp' | 'status'>): Promise<DeletionRequest> => {
+    const newReq: DeletionRequest = {
+      ...req,
+      id: generateId(),
+      timestamp: Date.now(),
+      status: 'pending'
+    };
+
+    if (isCloudflare()) {
+      try {
+        const res = await fetch('/api/deletion-requests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newReq)
+        });
+        if (res.ok) return newReq;
+      } catch (e) {
+        console.error("Cloudflare API error:", e);
+      }
+    }
+
+    const current = getLocal<DeletionRequest[]>('cf_deletion_requests', []);
+    current.unshift(newReq);
+    setLocal('cf_deletion_requests', current);
+    return newReq;
+  },
+
+  updateDeletionRequestStatus: async (id: string, status: 'approved' | 'rejected'): Promise<boolean> => {
+    if (isCloudflare()) {
+      try {
+        const res = await fetch(`/api/deletion-requests/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        if (res.ok) return true;
+      } catch (e) {
+        console.error("Cloudflare API error:", e);
+      }
+    }
+
+    const current = getLocal<DeletionRequest[]>('cf_deletion_requests', []);
+    const updated = current.map(r => r.id === id ? { ...r, status } : r);
+    setLocal('cf_deletion_requests', updated);
     return true;
   },
 

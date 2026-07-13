@@ -7,7 +7,8 @@ import {
   Cafe,
   VisitReport,
   DriverStatus,
-  Product
+  Product,
+  DeletionRequest
 } from '../types';
 import { api } from '../api';
 import {
@@ -46,6 +47,9 @@ interface AdminPanelProps {
   reports: VisitReport[];
   driverStatus: DriverStatus | null;
   products: Product[];
+  deletionRequests: DeletionRequest[];
+  onApproveDeletionRequest: (requestId: string) => Promise<void>;
+  onRejectDeletionRequest: (requestId: string) => Promise<void>;
   onAddProduct: (product: Omit<Product, 'id' | 'createdAt'>) => Promise<void>;
   onUpdateProduct: (productId: string, product: Partial<Omit<Product, 'id' | 'createdAt'>>) => Promise<void>;
   onDeleteProduct: (productId: string) => Promise<void>;
@@ -54,6 +58,7 @@ interface AdminPanelProps {
   onAddCafe: (cafe: Omit<Cafe, 'id' | 'createdAt' | 'visitStatus' | 'lastVisitDate' | 'assignedDate'>) => Promise<void>;
   onDeleteCafe: (cafeId: string) => Promise<void>;
   onAssignDate: (cafeId: string, date: string | null) => Promise<void>;
+  onDeleteReport: (reportId: string, cafeId: string) => Promise<void>;
   isAddingCafeMode: boolean;
   setIsAddingCafeMode: (mode: boolean) => void;
   newCafeCoords: { lat: number; lng: number } | null;
@@ -89,6 +94,9 @@ export default function AdminPanel({
   reports,
   driverStatus,
   products,
+  deletionRequests,
+  onApproveDeletionRequest,
+  onRejectDeletionRequest,
   onAddProduct,
   onUpdateProduct,
   onDeleteProduct,
@@ -97,6 +105,7 @@ export default function AdminPanel({
   onAddCafe,
   onDeleteCafe,
   onAssignDate,
+  onDeleteReport,
   isAddingCafeMode,
   setIsAddingCafeMode,
   newCafeCoords,
@@ -116,9 +125,18 @@ export default function AdminPanel({
     { id: 'cafes', label: 'بانک کافه‌ها', icon: Coffee },
     { id: 'sales', label: 'تحلیل جامع فروش دزفول', icon: TrendingUp },
     { id: 'products', label: 'مدیریت محصولات و قیمت‌ها', icon: Package },
-    { id: 'reports', label: 'گزارش‌های امروز راننده', icon: Clock3 },
+    { id: 'reports', label: 'گزارش‌های روزانه راننده', icon: Clock3 },
     { id: 'settings', label: 'تنظیمات امنیتی', icon: Lock },
   ] as const;
+
+  // Reports tab date filter state
+  const [reportsDateFilter, setReportsDateFilter] = useState<string>(activeDate);
+  const [confirmingDeletionId, setConfirmingDeletionId] = useState<string | null>(null);
+
+  // Sync reportsDateFilter if global activeDate changes
+  useEffect(() => {
+    setReportsDateFilter(activeDate);
+  }, [activeDate]);
 
   // Form state
   const [name, setName] = useState('');
@@ -391,6 +409,22 @@ export default function AdminPanel({
     const hours = Math.floor(minutes / 60);
     return `${toPersianDigits(hours)} ساعت پیش`;
   }, [driverStatus]);
+
+  // Unique report dates list for reports filter tab
+  const uniqueReportDates = useMemo(() => {
+    const dates = new Set<string>();
+    
+    // Always include today's date
+    dates.add(activeDate);
+    
+    reports.forEach(r => {
+      const rDate = new Date(r.timestamp);
+      const repStr = `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}`;
+      dates.add(repStr);
+    });
+    
+    return Array.from(dates).sort((a, b) => b.localeCompare(a));
+  }, [reports, activeDate]);
 
   const handleMapClick = (lat: number, lng: number) => {
     if (isAddingCafeMode) {
@@ -1391,35 +1425,153 @@ export default function AdminPanel({
 
         {activeTab === 'reports' && (
           <div className="w-full animate-fadeIn" id="reports_tab_root">
+            {/* Deletion requests section */}
+            {deletionRequests.filter(r => r.status === 'pending').length > 0 && (
+              <div className="bg-red-50 border border-red-200/80 rounded-2xl p-4 mb-5 space-y-4" id="pending_deletion_requests_admin">
+                <div className="flex items-center gap-2 text-red-850">
+                  <div className="p-1.5 bg-red-100 rounded-lg text-red-600">
+                    <AlertTriangle className="w-4 h-4" />
+                  </div>
+                  <div className="text-right">
+                    <h4 className="font-extrabold text-sm text-red-900">درخواست‌های تایید لغو/حذف گزارش بازدید</h4>
+                    <p className="text-[10px] text-red-700 font-bold mt-0.5">رانندگان درخواست حذف موارد زیر را دارند که نیاز به بررسی و تایید شما دارد.</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {deletionRequests.filter(r => r.status === 'pending').map((req) => {
+                    // Find corresponding report to show extra details
+                    const rep = reports.find(r => r.id === req.reportId);
+                    return (
+                      <div key={req.id} className="bg-white border border-red-100 rounded-xl p-3 shadow-sm space-y-2.5 text-right text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-slate-800 text-sm">{req.cafeName}</span>
+                          <span className="text-[10px] bg-red-100 text-red-800 px-2 py-0.5 rounded-full font-bold">
+                            درخواست حذف
+                          </span>
+                        </div>
+                        <div className="text-slate-500 space-y-1 font-medium text-[11px]">
+                          <p>بازاریاب: <span className="font-bold text-slate-700">{req.driverName || 'راننده'}</span></p>
+                          {rep && (
+                            <p>
+                              گزارش ثبت شده: {' '}
+                              <span className="font-bold text-slate-700">
+                                {rep.status === 'sold' ? `فروش (${rep.productName}): ${toPersianDigits(rep.quantitySold)} عدد` : 
+                                 rep.status === 'no_sale' ? 'عدم خرید' :
+                                 rep.status === 'callback' ? 'پیگیری مجدد' : 'بسته بود'}
+                              </span>
+                            </p>
+                          )}
+                          <p className="text-slate-700 mt-1">دلیل درخواست حذف:</p>
+                          <span className="font-bold text-red-700 block bg-red-50/50 p-2 border border-red-100/50 rounded-lg leading-relaxed">{req.reason}</span>
+                        </div>
+
+                        {confirmingDeletionId === req.id ? (
+                          <div className="flex flex-col gap-2 w-full pt-2 border-t border-red-100 animate-slideDown">
+                            <p className="text-[10px] text-red-700 font-extrabold text-center">آیا از حذف دائمی این گزارش بازدید اطمینان دارید؟</p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await onApproveDeletionRequest(req.id);
+                                  setConfirmingDeletionId(null);
+                                }}
+                                className="flex-1 bg-red-600 hover:bg-red-700 text-white py-1.5 px-3 rounded-lg font-black text-[11px] transition-all cursor-pointer text-center"
+                              >
+                                بله، حذف شود
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmingDeletionId(null)}
+                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 px-3 rounded-lg font-bold text-[11px] transition-all cursor-pointer text-center"
+                              >
+                                خیر، انصراف
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2 pt-1.5 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => onRejectDeletionRequest(req.id)}
+                              className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 py-1.5 px-3 rounded-lg font-bold text-[11px] transition-all cursor-pointer text-center"
+                            >
+                              بستن و رد درخواست
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingDeletionId(req.id)}
+                              className="flex-1 bg-red-600 hover:bg-red-700 text-white py-1.5 px-3 rounded-lg font-black text-[11px] transition-all cursor-pointer text-center"
+                            >
+                              تأیید و حذف نهایی
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Dynamic Activity Log / Reports table today */}
             <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden" id="today_activity_logs">
-              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                <h3 className="font-extrabold text-slate-800 text-sm flex items-center gap-1.5">
-                  <Clock3 className="w-4 h-4 text-orange-600" />
-                  <span>گزارشات و بازخوردهای امروز راننده ({toPersianDigits(reports.filter(r => {
-                    const rDate = new Date(r.timestamp);
-                    return `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}` === activeDate;
-                  }).length)})</span>
-                </h3>
-                <span className="bg-orange-50 text-orange-700 text-[10px] font-extrabold px-2.5 py-1 rounded-md border border-orange-100">
-                  کارتن محمد دزفول
-                </span>
+              
+              {/* Date Selector Header Bar */}
+              <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-orange-100 text-orange-600 rounded-xl">
+                    <Clock3 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-slate-800 text-sm">
+                      گزارشات و بازخوردهای رانندگان
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">
+                      فیلتر بر اساس روزها و مدیریت گزارش‌ها
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500 whitespace-nowrap">انتخاب روز:</span>
+                  <select
+                    value={reportsDateFilter}
+                    onChange={(e) => setReportsDateFilter(e.target.value)}
+                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-orange-500 text-slate-700 min-w-[160px]"
+                    id="reports_date_filter_select"
+                  >
+                    <option value="all">همه روزها (کل تاریخچه)</option>
+                    {uniqueReportDates.map(dateStr => (
+                      <option key={dateStr} value={dateStr}>
+                        {dateStr === activeDate ? `برنامه امروز (${toPersianDigits(getPersianDateString(dateStr))})` : toPersianDigits(getPersianDateString(dateStr))}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
+              {/* Reports List */}
               <div className="divide-y divide-slate-100 overflow-y-auto font-medium">
-                {reports.filter(r => {
-                  const rDate = new Date(r.timestamp);
-                  return `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}` === activeDate;
-                }).length === 0 ? (
-                  <div className="p-12 text-center text-slate-400 text-xs font-bold">
-                    هنوز هیچ گزارش فروشی از طرف راننده در امروز ثبت نشده است.
-                  </div>
-                ) : (
-                  reports
-                    .filter(r => {
-                      const rDate = new Date(r.timestamp);
-                      return `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}` === activeDate;
-                    })
+                {(() => {
+                  const filteredReports = reports.filter(r => {
+                    if (reportsDateFilter === 'all') return true;
+                    const rDate = new Date(r.timestamp);
+                    const rDateStr = `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}`;
+                    return rDateStr === reportsDateFilter;
+                  });
+
+                  if (filteredReports.length === 0) {
+                    return (
+                      <div className="p-12 text-center text-slate-400 text-xs font-bold">
+                        {reportsDateFilter === 'all' 
+                          ? 'هیچ گزارش فروشی در سیستم ثبت نشده است.'
+                          : `هیچ گزارش فروشی برای تاریخ انتخابی (${toPersianDigits(getPersianDateString(reportsDateFilter))}) ثبت نشده است.`}
+                      </div>
+                    );
+                  }
+
+                  return filteredReports
                     .sort((a, b) => b.timestamp - a.timestamp)
                     .map((report) => {
                       let statusBadge = null;
@@ -1438,16 +1590,38 @@ export default function AdminPanel({
                         statusBadge = <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold px-2 py-0.5 rounded-full">بسته بود</span>;
                       }
 
-                      const rTime = new Date(report.timestamp).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+                      const rDateTimeObj = new Date(report.timestamp);
+                      const rTime = rDateTimeObj.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+                      const rDateStr = `${rDateTimeObj.getFullYear()}-${String(rDateTimeObj.getMonth() + 1).padStart(2, '0')}-${String(rDateTimeObj.getDate()).padStart(2, '0')}`;
 
                       return (
                         <div key={report.id} className="p-4 hover:bg-slate-50/50 transition-all flex flex-col gap-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <span className="font-extrabold text-slate-800 text-xs">{report.cafeName}</span>
-                              <span className="text-[10px] text-slate-400 font-sans font-medium">({rTime})</span>
+                              <span className="text-[10px] text-slate-400 font-sans font-medium">
+                                ({toPersianDigits(getPersianDateString(rDateStr))} ساعت {rTime})
+                              </span>
                             </div>
-                            {statusBadge}
+                            <div className="flex items-center gap-2">
+                              {statusBadge}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (window.confirm(`آیا مطمئن هستید که می‌خواهید گزارش بازدید کافه "${report.cafeName}" را حذف کنید؟`)) {
+                                    try {
+                                      await onDeleteReport(report.id, report.cafeId);
+                                    } catch (e) {
+                                      console.error("Error deleting report as admin:", e);
+                                    }
+                                  }
+                                }}
+                                className="p-1 hover:bg-red-50 hover:text-red-600 text-slate-400 rounded-lg transition-all cursor-pointer"
+                                title="حذف گزارش"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
                           
                           {report.notes && (
@@ -1464,8 +1638,8 @@ export default function AdminPanel({
                           )}
                         </div>
                       );
-                    })
-                )}
+                    });
+                })()}
               </div>
             </div>
           </div>

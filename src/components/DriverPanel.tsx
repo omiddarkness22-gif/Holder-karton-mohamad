@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { g_to_j, JALALI_MONTH_NAMES, toPersianDigits as toPersianDigitsShamsi } from '../lib/shamsi';
-import { Cafe, VisitReport, DriverStatus, Product } from '../types';
+import { Cafe, VisitReport, DriverStatus, Product, DeletionRequest } from '../types';
+import { api } from '../api';
 import {
   MapPin,
   Coffee,
@@ -15,7 +16,12 @@ import {
   AlertCircle,
   Package,
   FileText,
-  DollarSign
+  DollarSign,
+  Trash2,
+  AlertTriangle,
+  Bell,
+  Plus,
+  ShoppingBag,
 } from 'lucide-react';
 
 interface DriverPanelProps {
@@ -23,8 +29,14 @@ interface DriverPanelProps {
   reports: VisitReport[];
   driverStatus: DriverStatus | null;
   products: Product[];
+  deletionRequests: DeletionRequest[];
+  notifications: any[];
+  onMarkNotificationAsRead: (id: string) => Promise<void>;
+  onMarkAllNotificationsAsRead: () => Promise<void>;
+  onCreateDeletionRequest: (reportId: string, cafeId: string, reason: string) => Promise<void>;
   onUpdateDriverLocation: (lat: number, lng: number, isSharing: boolean) => Promise<void>;
   onSubmitReport: (report: Omit<VisitReport, 'id' | 'timestamp'>) => Promise<void>;
+  onDeleteReport: (reportId: string, cafeId: string) => Promise<void>;
   selectedCafeId: string | null;
   onCafeSelect: (cafeId: string) => void;
   setUserLocation: (coords: { lat: number; lng: number } | null) => void;
@@ -38,8 +50,14 @@ export default function DriverPanel({
   reports,
   driverStatus,
   products,
+  deletionRequests,
+  notifications,
+  onMarkNotificationAsRead,
+  onMarkAllNotificationsAsRead,
+  onCreateDeletionRequest,
   onUpdateDriverLocation,
   onSubmitReport,
+  onDeleteReport,
   selectedCafeId,
   onCafeSelect,
   setUserLocation,
@@ -47,6 +65,15 @@ export default function DriverPanel({
   darkMode,
   toggleDarkMode,
 }: DriverPanelProps) {
+  // Basket Item Interface for selling multiple products
+  interface BasketItem {
+    productId: string;
+    productName: string;
+    unitPrice: number;
+    quantity: number;
+    totalPrice: number;
+  }
+
   // Form states
   const [status, setStatus] = useState<Cafe['visitStatus']>('sold');
   const [quantity, setQuantity] = useState<number | ''>(100);
@@ -55,6 +82,11 @@ export default function DriverPanel({
 
   // Product state for driver panel
   const [selectedProductId, setSelectedProductId] = useState<string>('');
+  
+  // Multiple Products Basket State
+  const [basketItems, setBasketItems] = useState<BasketItem[]>([]);
+  const [addQuantity, setAddQuantity] = useState<number | ''>(50);
+  const [addProductId, setAddProductId] = useState<string>('');
 
   // Find currently selected product
   const selectedProduct = useMemo(() => {
@@ -66,6 +98,9 @@ export default function DriverPanel({
     if (products.length > 0 && !selectedProductId) {
       setSelectedProductId(products[0].id);
     }
+    if (products.length > 0 && !addProductId) {
+      setAddProductId(products[0].id);
+    }
   }, [products]);
 
   // Automatically calculate total price based on unit price (driver cannot edit price)
@@ -75,6 +110,78 @@ export default function DriverPanel({
       setTotalPrice(qty * selectedProduct.price);
     }
   }, [quantity, selectedProduct]);
+
+  // Basket item quantity modification helpers
+  const handleUpdateBasketItemQty = (prodId: string, newQty: number) => {
+    const qty = Math.max(1, newQty);
+    setBasketItems(prev => prev.map(item => {
+      if (item.productId === prodId) {
+        return {
+          ...item,
+          quantity: qty,
+          totalPrice: qty * item.unitPrice
+        };
+      }
+      return item;
+    }));
+  };
+
+  // Safe wrapper for string key conversion
+  const toEnglishDigits = (str: string): string => {
+    return str.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776))
+              .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632));
+  };
+
+  const handleRemoveBasketItem = (prodId: string) => {
+    setBasketItems(prev => prev.filter(item => item.productId !== prodId));
+  };
+
+  const handleAddProductToBasket = () => {
+    if (!addProductId) return;
+    const prod = products.find(p => p.id === addProductId);
+    if (!prod) return;
+
+    const qty = typeof addQuantity === 'number' ? addQuantity : 50;
+
+    setBasketItems(prev => {
+      const existing = prev.find(item => item.productId === addProductId);
+      if (existing) {
+        return prev.map(item => {
+          if (item.productId === addProductId) {
+            const nextQty = item.quantity + qty;
+            return {
+              ...item,
+              quantity: nextQty,
+              totalPrice: nextQty * item.unitPrice
+            };
+          }
+          return item;
+        });
+      } else {
+        return [
+          ...prev,
+          {
+            productId: prod.id,
+            productName: prod.name,
+            unitPrice: prod.price,
+            quantity: qty,
+            totalPrice: qty * prod.price
+          }
+        ];
+      }
+    });
+    setAddQuantity(50);
+  };
+
+  // Sync basket changes to total quantity and price states
+  useEffect(() => {
+    if (status === 'sold' && basketItems.length > 0) {
+      const totalQty = basketItems.reduce((sum, item) => sum + item.quantity, 0);
+      const totalPriceSum = basketItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      setQuantity(totalQty);
+      setTotalPrice(totalPriceSum);
+    }
+  }, [basketItems, status]);
   
   const [loading, setLoading] = useState(false);
   const [driverTab, setDriverTab] = useState<'today' | 'tomorrow' | 'allFuture'>('today');
@@ -82,6 +189,11 @@ export default function DriverPanel({
   const [success, setSuccess] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
+
+  // Deletion request states
+  const [showDeletionRequestForm, setShowDeletionRequestForm] = useState(false);
+  const [deletionReason, setDeletionReason] = useState('');
+  const [deletionError, setDeletionError] = useState('');
 
   const watchIdRef = useRef<number | null>(null);
 
@@ -204,12 +316,22 @@ export default function DriverPanel({
     };
   }, []);
 
+  // Ref to track selected cafe id to prevent form reset during live polling updates
+  const lastCafeIdRef = useRef<string | null>(null);
+
   // Update report default values if target changes
   useEffect(() => {
-    if (selectedCafe) {
+    if (!selectedCafe) {
+      lastCafeIdRef.current = null;
+      return;
+    }
+
+    if (selectedCafe.id !== lastCafeIdRef.current) {
+      lastCafeIdRef.current = selectedCafe.id;
       setNotes('');
       setError('');
       setSuccess('');
+      
       if (selectedCafe.visitStatus !== 'pending') {
         setStatus(selectedCafe.visitStatus);
         const existingReport = reports.find(r => r.cafeId === selectedCafe.id);
@@ -220,24 +342,50 @@ export default function DriverPanel({
           if (existingReport.productId) {
             setSelectedProductId(existingReport.productId);
           }
+          setBasketItems([]);
         }
       } else {
         setStatus('sold');
-        setQuantity(100);
+        setNotes('');
+        
+        // Initialize basket with the first product as a default (100 qty) for convenience
         if (products.length > 0) {
-          setSelectedProductId(products[0].id);
-          setTotalPrice(100 * products[0].price);
+          const defaultProd = products[0];
+          setSelectedProductId(defaultProd.id);
+          setQuantity(100);
+          setTotalPrice(100 * defaultProd.price);
+          setBasketItems([
+            {
+              productId: defaultProd.id,
+              productName: defaultProd.name,
+              unitPrice: defaultProd.price,
+              quantity: 100,
+              totalPrice: 100 * defaultProd.price
+            }
+          ]);
         } else {
+          setQuantity(100);
           setTotalPrice(150000);
+          setBasketItems([]);
         }
       }
+    } else {
+      // Same cafe being active - if products have been loaded and nothing is selected, do a lazy init
+      if (products.length > 0 && !selectedProductId) {
+        setSelectedProductId(products[0].id);
+      }
     }
-  }, [selectedCafeId, reports, products]);
+  }, [selectedCafeId, selectedCafe, reports, products, selectedProductId]);
 
   // Submit report
   const handleReportSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCafe) return;
+
+    if (status === 'sold' && basketItems.length === 0) {
+      setError('سبد سفارشات خالی است. لطفا ابتدا یک محصول به فاکتور اضافه کنید.');
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -253,7 +401,11 @@ export default function DriverPanel({
         totalPrice: status === 'sold' ? totalPrice : 0,
         notes: notes.trim(),
     };
-    if (status === 'sold' && selectedProduct) {
+
+    if (status === 'sold' && basketItems.length > 0) {
+        reportData.productId = basketItems.map(item => item.productId).join(",");
+        reportData.productName = basketItems.map(item => `${item.productName} (${item.quantity} عدد)`).join(" + ");
+    } else if (status === 'sold' && selectedProduct) {
         reportData.productId = selectedProduct.id;
         reportData.productName = selectedProduct.name;
     }
@@ -262,6 +414,8 @@ export default function DriverPanel({
       await onSubmitReport(reportData);
       setSuccess('گزارش بازاریابی شما با موفقیت به مدیریت ارسال شد.');
       setNotes('');
+      // Keep lastCafeIdRef updated so that it doesn't immediately reset if we render read-only state
+      lastCafeIdRef.current = null;
     } catch (err: any) {
       setError('خطا در ارسال گزارش: ' + err.message);
     } finally {
@@ -274,11 +428,6 @@ export default function DriverPanel({
     return str.toString().replace(/[0-9]/g, (w) => id[+w]);
   };
 
-  const toEnglishDigits = (str: string): string => {
-    return str.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 1776))
-              .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 1632));
-  };
-
   const formatPrice = (amount: number) => {
     if (!amount) return '۰';
     return new Intl.NumberFormat('fa-IR').format(amount);
@@ -289,6 +438,45 @@ export default function DriverPanel({
       
       {/* 1. Today's Target List */}
       <div className="flex flex-col gap-5">
+
+        {/* Compact inline notification panel */}
+        {notifications.length > 0 && (
+          <div className="bg-orange-50/40 dark:bg-orange-950/10 border border-orange-200/60 dark:border-orange-900/30 rounded-2xl p-4 shadow-sm space-y-3 animate-fadeIn" id="driver_in_panel_notifications">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-orange-800 dark:text-orange-400">
+                <div className="p-1.5 bg-orange-100 dark:bg-orange-950/50 rounded-lg text-orange-600 dark:text-orange-400">
+                  <Bell className="w-4 h-4 animate-swing" />
+                </div>
+                <h4 className="font-extrabold text-xs text-orange-900 dark:text-orange-300">اعلان‌های دریافتی جدید ({toPersianDigits(notifications.length)})</h4>
+              </div>
+              <button
+                type="button"
+                onClick={onMarkAllNotificationsAsRead}
+                className="text-[10px] text-orange-700 hover:text-orange-900 dark:text-orange-400 dark:hover:text-orange-300 font-black cursor-pointer bg-orange-100/60 hover:bg-orange-100 dark:bg-orange-950/45 dark:hover:bg-orange-950/80 px-2.5 py-1 rounded-lg transition-all"
+              >
+                تایید همه به عنوان خوانده شده
+              </button>
+            </div>
+
+            <div className="max-h-[160px] overflow-y-auto space-y-2 pr-1">
+              {notifications.map((notif) => (
+                <div key={notif.id} className="bg-white dark:bg-slate-800 border border-orange-100/60 dark:border-orange-900/20 rounded-xl p-2.5 flex items-start gap-2.5 shadow-sm text-right text-xs">
+                  <div className="flex-1 text-slate-600 dark:text-slate-300 font-bold leading-relaxed text-[11px]">
+                    {notif.message}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onMarkNotificationAsRead(notif.id)}
+                    className="p-1 bg-slate-50 dark:bg-slate-700 hover:bg-orange-50 dark:hover:bg-orange-950/30 text-slate-400 dark:text-slate-500 hover:text-orange-600 dark:hover:text-orange-400 rounded-md transition-all cursor-pointer"
+                    title="علامت‌گذاری به عنوان خوانده شده"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         
         {/* GPS Live Sharing Switcher Card */}
         <div className="bg-gradient-to-br from-orange-50/70 to-amber-50/30 border border-orange-100 rounded-2xl p-4 shadow-sm relative overflow-hidden">
@@ -614,65 +802,222 @@ export default function DriverPanel({
               </div>
             </div>
 
+            {selectedCafe.visitStatus !== 'pending' && (
+              <div className="bg-orange-50/80 border border-orange-200/60 p-4 rounded-xl text-xs space-y-3 mt-4" id="report_already_submitted_warning">
+                {(() => {
+                  const existingReport = reports.find(r => r.cafeId === selectedCafe.id);
+                  if (!existingReport) return null;
+                  
+                  const pendingReq = deletionRequests.find(req => req.reportId === existingReport.id && req.status === 'pending');
+                  
+                  return (
+                    <div className="space-y-3">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 text-orange-800 font-extrabold">
+                          <AlertTriangle className="w-4 h-4 text-orange-600 shrink-0" />
+                          <span>گزارش بازدید این کافه قبلاً ثبت شده است.</span>
+                        </div>
+
+                        {!pendingReq && (() => {
+                          const reportDateStr = new Date(existingReport.timestamp).toDateString();
+                          const todayDateStr = new Date().toDateString();
+                          const isToday = reportDateStr === todayDateStr;
+                          
+                          if (!isToday) {
+                            return (
+                              <span className="text-[10px] text-slate-500 font-bold bg-slate-100 px-2 py-1 rounded">
+                                فقط گزارش روز جاری قابل حذف است.
+                              </span>
+                            );
+                          }
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowDeletionRequestForm(true);
+                                setDeletionReason('');
+                                setDeletionError('');
+                              }}
+                              className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-[10px] font-black px-2.5 py-1.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer"
+                              id="btn_delete_report_prompt"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>درخواست حذف گزارش</span>
+                            </button>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Compact Details of the submitted report */}
+                      <div className="bg-white/90 dark:bg-slate-900/50 p-3.5 rounded-xl border border-orange-100/60 dark:border-slate-800 space-y-2.5 text-right shadow-sm">
+                        <div className="grid grid-cols-2 gap-3 text-[11px]">
+                          <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg">
+                            <span className="text-slate-400 font-bold">وضعیت ثبت شده: </span>
+                            <span className="font-extrabold text-slate-800 dark:text-slate-200">
+                              {existingReport.status === 'sold' && 'فروش موفق'}
+                              {existingReport.status === 'no_sale' && 'بدون خرید'}
+                              {existingReport.status === 'callback' && 'پیگیری مجدد'}
+                              {existingReport.status === 'closed' && 'کافه بسته بود'}
+                            </span>
+                          </div>
+                          {existingReport.status === 'sold' && (
+                            <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg">
+                              <span className="text-slate-400 font-bold">محصول فروخته شده: </span>
+                              <span className="font-extrabold text-slate-800 dark:text-slate-200">{existingReport.productName || 'کارتن لیوان'}</span>
+                            </div>
+                          )}
+                          {existingReport.status === 'sold' && (
+                            <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg">
+                              <span className="text-slate-400 font-bold">تعداد کل سفارش: </span>
+                              <span className="font-extrabold text-slate-800 dark:text-slate-200">{toPersianDigits(existingReport.quantitySold)} عدد</span>
+                            </div>
+                          )}
+                          {existingReport.status === 'sold' && (
+                            <div className="bg-slate-50 dark:bg-slate-800/40 p-2 rounded-lg">
+                              <span className="text-slate-400 font-bold">مبلغ کل فاکتور: </span>
+                              <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{toPersianDigits(formatPrice(existingReport.totalPrice))} تومان</span>
+                            </div>
+                          )}
+                        </div>
+                        {existingReport.notes && (
+                          <div className="text-[11px] border-t border-slate-100/80 dark:border-slate-800/60 pt-2 mt-2">
+                            <span className="text-slate-400 font-bold">توضیحات و یادداشت راننده: </span>
+                            <p className="text-slate-600 dark:text-slate-300 font-bold leading-relaxed mt-1">{existingReport.notes}</p>
+                          </div>
+                        )}
+                        <div className="text-[9px] text-slate-400 text-left border-t border-slate-100/50 dark:border-slate-800/40 pt-1.5 mt-1.5 font-bold">
+                          ثبت شده در: {toPersianDigits(new Date(existingReport.timestamp).toLocaleTimeString('fa-IR'))}
+                        </div>
+                      </div>
+
+                      {pendingReq && (
+                        <div className="bg-orange-100/50 border border-orange-200 p-3.5 rounded-xl space-y-2 text-right">
+                          <p className="font-extrabold text-orange-800 text-xs flex items-center gap-1.5">
+                            <Clock className="w-4 h-4 text-orange-600" />
+                            <span>درخواست حذف گزارش ثبت شده و در انتظار تأیید مدیریت است.</span>
+                          </p>
+                          <p className="text-slate-600 font-medium text-[11px]">
+                            دلیل ثبت شده برای حذف: <span className="font-bold text-slate-800">{pendingReq.reason}</span>
+                          </p>
+                        </div>
+                      )}
+
+                      {showDeletionRequestForm && !pendingReq && (
+                        <div className="bg-white border border-red-100 p-3.5 rounded-xl space-y-3 animate-fadeIn" id="deletion_request_form_container">
+                          <p className="font-extrabold text-slate-700 text-[11px] text-right">
+                            لطفاً علت درخواست برای حذف گزارش را بنویسید تا برای تایید به مدیر ارسال شود:
+                          </p>
+                          <textarea
+                            placeholder="مثال: اشتباه در ثبت تعداد کارتن‌ها، ثبت گزارش برای کافه اشتباهی و..."
+                            value={deletionReason}
+                            onChange={(e) => setDeletionReason(e.target.value)}
+                            className="w-full p-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:border-red-500 dark:focus:border-red-500 text-slate-800 dark:text-slate-100 font-medium text-right focus:bg-white dark:focus:bg-slate-850"
+                            rows={2}
+                            id="deletion_reason_input"
+                          />
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowDeletionRequestForm(false)}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-[10px] px-3.5 py-2 rounded-xl transition-all cursor-pointer"
+                            >
+                              انصراف
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!deletionReason.trim()) {
+                                  setDeletionError('وارد کردن دلیل حذف الزامی است.');
+                                  return;
+                                }
+                                setDeletionError('');
+                                try {
+                                  await onCreateDeletionRequest(existingReport.id, selectedCafe.id, deletionReason.trim());
+                                  setShowDeletionRequestForm(false);
+                                  setSuccess('درخواست حذف گزارش با موفقیت ثبت شد و برای مدیریت ارسال گردید.');
+                                } catch (e) {
+                                  setDeletionError('خطا در ثبت درخواست.');
+                                }
+                              }}
+                              className="bg-red-600 hover:bg-red-700 text-white font-black text-[10px] px-4 py-2 rounded-xl transition-all cursor-pointer"
+                            >
+                              ارسال درخواست به مدیریت
+                            </button>
+                          </div>
+                          {deletionError && (
+                            <p className="text-[10px] font-bold text-red-600 text-right">
+                              {deletionError}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
 
 
             {/* Visit submission form */}
-            <form onSubmit={handleReportSubmit} className="mt-5 space-y-4">
-              <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
-                <FileText className="w-4 h-4 text-orange-600" />
-                <span>ثبت گزارش و نتایج بازاریابی کارتن</span>
-              </h4>
+            {selectedCafe.visitStatus === 'pending' && (
+              <form onSubmit={handleReportSubmit} className="mt-5 space-y-4">
+                <h4 className="font-extrabold text-slate-800 text-sm flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-orange-600" />
+                  <span>ثبت گزارش و نتایج بازاریابی کارتن</span>
+                </h4>
 
-              {error && <div className="text-xs text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-lg font-bold">{error}</div>}
-              {success && <div className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 p-2.5 rounded-lg font-bold">{success}</div>}
+                {error && <div className="text-xs text-red-600 bg-red-50 border border-red-100 p-2.5 rounded-lg font-bold">{error}</div>}
+                {success && <div className="text-xs text-emerald-600 bg-emerald-50 border border-emerald-100 p-2.5 rounded-lg font-bold">{success}</div>}
 
-              {/* Status Radio Choice */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-600 block">وضعیت بازدید و سفارش کافه:</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  
-                  {/* Visited & Sold */}
-                  <label className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
-                    status === 'sold'
-                      ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20'
-                      : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-100/50 text-slate-600'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="visitStatus"
-                      value="sold"
-                      checked={status === 'sold'}
-                      onChange={() => setStatus('sold')}
-                      className="hidden"
-                    />
-                    <CheckCircle2 className="w-4.5 h-4.5" />
-                    <span>فروش موفق</span>
-                  </label>
+                {/* Status Radio Choice */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-600 block">وضعیت بازدید و سفارش کافه:</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    
+                    {/* Visited & Sold */}
+                    <label className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
+                      status === 'sold'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300 ring-2 ring-emerald-500/20'
+                        : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-100/50 text-slate-600'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="visitStatus"
+                        value="sold"
+                        checked={status === 'sold'}
+                        onChange={() => setStatus('sold')}
+                        className="hidden"
+                      />
+                      <CheckCircle2 className="w-4.5 h-4.5" />
+                      <span>فروش موفق</span>
+                    </label>
 
-                  {/* Callback */}
-                  <label className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
-                    status === 'callback'
-                      ? 'bg-orange-50 text-orange-700 border-orange-300 ring-2 ring-orange-500/20'
-                      : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-100/50 text-slate-600'
-                  }`}>
-                    <input
-                      type="radio"
-                      name="visitStatus"
-                      value="callback"
-                      checked={status === 'callback'}
-                      onChange={() => setStatus('callback')}
-                      className="hidden"
-                    />
-                    <Clock className="w-4.5 h-4.5" />
-                    <span>پیگیری مجدد</span>
-                  </label>
+                    {/* Callback */}
+                    <label className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
+                      status === 'callback'
+                        ? 'bg-orange-50 text-orange-700 border-orange-300 ring-2 ring-orange-500/20'
+                        : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-100/50 text-slate-600'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="visitStatus"
+                        value="callback"
+                        checked={status === 'callback'}
+                        onChange={() => setStatus('callback')}
+                        className="hidden"
+                      />
+                      <Clock className="w-4.5 h-4.5" />
+                      <span>پیگیری مجدد</span>
+                    </label>
 
-                  {/* Visited & No Sale */}
-                  <label className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
-                    status === 'no_sale'
-                      ? 'bg-red-50 text-red-700 border-red-300 ring-2 ring-red-500/20'
-                      : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-100/50 text-slate-600'
-                  }`}>
+                    {/* Visited & No Sale */}
+                    <label className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
+                      status === 'no_sale'
+                        ? 'bg-red-50 text-red-700 border-red-300 ring-2 ring-red-500/20'
+                        : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-100/50 text-slate-600'
+                    }`}>
                     <input
                       type="radio"
                       name="visitStatus"
@@ -708,89 +1053,169 @@ export default function DriverPanel({
 
               {/* Show only if SOLD */}
               {status === 'sold' && (
-                <div className="grid grid-cols-1 gap-4 p-4 rounded-2xl bg-emerald-50/40 border border-emerald-100 animate-fadeIn">
+                <div className="grid grid-cols-1 gap-4 p-4 rounded-2xl bg-emerald-50/40 dark:bg-slate-800/20 border border-emerald-100 dark:border-emerald-950/40 animate-fadeIn">
                   
-                  {/* Select Product */}
-                  <div className="space-y-1.5 col-span-1">
-                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                      <Package className="w-4 h-4 text-emerald-600" />
-                      <span>نوع کالا / محصول فروخته شده:</span>
+                  <div className="space-y-3">
+                    <label className="text-xs font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 border-b border-emerald-100 dark:border-emerald-950 pb-1.5">
+                      <ShoppingBag className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span>اقلام و کالاهای فروخته شده (فاکتور فروش)</span>
                     </label>
-                    <select
-                      id="form_product_select"
-                      value={selectedProductId}
-                      onChange={(e) => setSelectedProductId(e.target.value)}
-                      className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:border-emerald-500 text-slate-700 font-semibold"
-                    >
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} - ({toPersianDigits(formatPrice(p.price))} تومان)
-                        </option>
-                      ))}
-                    </select>
+
+                    {/* Basket Items List */}
+                    {basketItems.length === 0 ? (
+                      <div className="text-center py-4 text-xs font-bold text-slate-400 bg-white/50 dark:bg-slate-900/30 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                        هیچ محصولی در فاکتور اضافه نشده است. لطفاً از بخش زیر محصول اضافه کنید.
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {basketItems.map((item) => (
+                          <div 
+                            key={item.productId} 
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-white dark:bg-slate-900/80 rounded-xl border border-slate-100 dark:border-slate-800/50 shadow-xs"
+                          >
+                            <div className="flex flex-col text-right">
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{item.productName}</span>
+                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold">
+                                قیمت واحد: {toPersianDigits(formatPrice(item.unitPrice))} تومان
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between sm:justify-end gap-3.5">
+                              {/* Quantity Editor */}
+                              <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-850 px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/50">
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateBasketItemQty(item.productId, item.quantity - 1)}
+                                  className="w-5 h-5 rounded bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-750 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold flex items-center justify-center transition-colors text-sm"
+                                >
+                                  -
+                                </button>
+                                <input
+                                  type="tel"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={item.quantity}
+                                  onChange={(e) => {
+                                    const cleanVal = toEnglishDigits(e.target.value).replace(/\D/g, '');
+                                    if (cleanVal !== '') {
+                                      handleUpdateBasketItemQty(item.productId, parseInt(cleanVal, 10));
+                                    } else {
+                                      handleUpdateBasketItemQty(item.productId, 1);
+                                    }
+                                  }}
+                                  className="w-12 text-center bg-transparent border-0 font-sans font-black text-xs text-black dark:text-white focus:outline-none"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateBasketItemQty(item.productId, item.quantity + 1)}
+                                  className="w-5 h-5 rounded bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-750 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold flex items-center justify-center transition-colors text-sm"
+                                >
+                                  +
+                                </button>
+                              </div>
+
+                              {/* Price Display */}
+                              <div className="text-left min-w-[90px]">
+                                <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">
+                                  {toPersianDigits(formatPrice(item.totalPrice))} تومان
+                                </span>
+                              </div>
+
+                              {/* Delete Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveBasketItem(item.productId)}
+                                className="text-red-500 hover:text-red-600 p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Quantity Sold */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                        <Package className="w-4 h-4 text-emerald-600" />
-                        <span>تعداد سفارش داده شده:</span>
-                      </label>
-                      <div className="relative">
+                  {/* Add Product Section */}
+                  <div className="bg-slate-100/50 dark:bg-slate-900/30 p-3.5 rounded-xl border border-slate-200/40 dark:border-slate-800/40 space-y-3 mt-1">
+                    <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 block">
+                      ➕ افزودن کالا/محصول جدید به این فاکتور:
+                    </span>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                      {/* Product select */}
+                      <div className="sm:col-span-6 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">انتخاب محصول:</label>
+                        <select
+                          id="add_product_select"
+                          value={addProductId}
+                          onChange={(e) => setAddProductId(e.target.value)}
+                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-black dark:text-white focus:outline-none focus:border-emerald-500"
+                        >
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id} className="text-black bg-white">
+                              {p.name} - ({toPersianDigits(formatPrice(p.price))} ت)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Quantity input */}
+                      <div className="sm:col-span-3 space-y-1">
+                        <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">تعداد:</label>
                         <input
-                          id="form_qty"
+                          id="add_product_qty"
                           type="tel"
                           inputMode="numeric"
                           pattern="[0-9]*"
-                          required
-                          value={quantity === '' ? '' : quantity}
+                          value={addQuantity}
                           onChange={(e) => {
-                            const inputVal = e.target.value;
-                            if (inputVal === '') {
-                              setQuantity('');
-                              return;
-                            }
-                            const cleanVal = toEnglishDigits(inputVal).replace(/\D/g, '');
+                            const cleanVal = toEnglishDigits(e.target.value).replace(/\D/g, '');
                             if (cleanVal === '') {
-                              setQuantity('');
+                              setAddQuantity('');
                             } else {
-                              const val = Math.max(1, parseInt(cleanVal, 10) || 1);
-                              setQuantity(val);
+                              setAddQuantity(Math.max(1, parseInt(cleanVal, 10)));
                             }
                           }}
-                          className="w-full pl-12 pr-4 py-2 bg-white dark:bg-slate-800 dark:text-white border border-slate-200/80 dark:border-slate-700 rounded-xl text-xs font-sans focus:outline-none focus:border-emerald-500 font-bold text-slate-800"
+                          placeholder="مثال: ۵۰"
+                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-black text-black dark:text-white focus:outline-none focus:border-emerald-500"
                         />
-                        <span className="absolute left-3 top-2 text-[10px] font-extrabold text-slate-400">عدد</span>
                       </div>
-                      <p className="text-[10px] text-slate-400 font-bold">تعداد نهایی بر اساس فاکتور تحویلی</p>
-                    </div>
 
-                    {/* Total Price */}
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                        <DollarSign className="w-4 h-4 text-emerald-600" />
-                        <span>مبلغ کل سفارش (تومان):</span>
-                      </label>
-                      <div className="relative">
-                        <input
-                          id="form_price"
-                          type="text"
-                          readOnly
-                          disabled
-                          value={`${toPersianDigits(formatPrice(totalPrice))} تومان`}
-                          className="w-full px-4 py-2 bg-slate-100 border border-slate-200/80 rounded-xl text-xs font-bold text-slate-500 select-none cursor-not-allowed text-center"
-                        />
+                      {/* Add button */}
+                      <div className="sm:col-span-3">
+                        <button
+                          type="button"
+                          onClick={handleAddProductToBasket}
+                          className="w-full py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>افزودن به لیست</span>
+                        </button>
                       </div>
-                      <p className="text-[10px] text-orange-600 font-black">
-                        ⚠️ تعیین قیمت فروش منحصراً در اختیار مدیریت می‌باشد.
-                      </p>
                     </div>
                   </div>
 
-                  {selectedProduct && (
-                    <div className="text-[10px] bg-emerald-100/30 text-emerald-800 border border-emerald-100/50 p-2.5 rounded-xl leading-relaxed font-bold">
-                      محاسبه قیمت: {toPersianDigits(quantity || 0)} عدد × {toPersianDigits(formatPrice(selectedProduct.price))} تومان (قیمت واحد مصوب مدیریت) = {toPersianDigits(formatPrice(totalPrice))} تومان
+                  {/* Summary Footer */}
+                  {basketItems.length > 0 && (
+                    <div className="mt-2 pt-3 border-t border-dashed border-emerald-100 dark:border-emerald-950 flex flex-col gap-2">
+                      <div className="flex items-center justify-between bg-emerald-100/30 dark:bg-emerald-950/10 p-3 rounded-xl border border-emerald-100/50 dark:border-emerald-950/30">
+                        <div className="flex flex-col text-right">
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">جمع کل اقلام سفارش:</span>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-100">
+                            {toPersianDigits(quantity || 0)} عدد کالا
+                          </span>
+                        </div>
+                        <div className="flex flex-col text-left">
+                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">جمع کل مبلغ فاکتور:</span>
+                          <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                            {toPersianDigits(formatPrice(totalPrice))} تومان
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-orange-600 dark:text-orange-400 font-extrabold flex items-center gap-1">
+                        <span>⚠️ تعیین قیمت فروش منحصراً بر اساس نرخ مصوب مدیریت می‌باشد.</span>
+                      </p>
                     </div>
                   )}
 
@@ -799,14 +1224,14 @@ export default function DriverPanel({
 
               {/* General description box */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700">توضیحات و بازخورد مدیر کافه:</label>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">توضیحات و بازخورد مدیر کافه:</label>
                 <textarea
                   id="form_notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="مثال: مایل به سفارش با لوگوی اختصاصی کافه خودشان هستند / فردا دوباره تماس گرفته شود..."
                   rows={3}
-                  className="w-full px-4 py-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs focus:outline-none focus:border-orange-600 focus:bg-white resize-none text-slate-700 leading-relaxed font-medium"
+                  className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:border-orange-600 dark:focus:border-orange-500 focus:bg-white dark:focus:bg-slate-850 resize-none text-black dark:text-white leading-relaxed font-black text-right"
                 />
               </div>
 
@@ -831,6 +1256,7 @@ export default function DriverPanel({
               </button>
 
             </form>
+            )}
 
           </div>
         ) : (

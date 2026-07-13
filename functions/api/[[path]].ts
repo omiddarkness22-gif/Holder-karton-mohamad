@@ -145,6 +145,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         ).run();
         return jsonResponse({ success: true });
       }
+
+      if (method === "DELETE" && idParam) {
+        await db.prepare(`DELETE FROM visit_reports WHERE id = ?`).bind(idParam).run();
+        return jsonResponse({ success: true });
+      }
     }
 
     // --- 4. PRODUCTS ---
@@ -261,14 +266,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       const idParam = path.split("/")[3];
 
       if (method === "GET") {
-        const { results } = await db.prepare(`SELECT * FROM notifications WHERE driverId = 'driver_mohammad' AND read = 0 ORDER BY createdAt DESC`).all();
+        const { results } = await db.prepare(`SELECT * FROM notifications WHERE driverId = 'driver_mohammad' AND "read" = 0 ORDER BY createdAt DESC`).all();
         return jsonResponse(results.map((r: any) => ({ ...r, read: !!r.read })));
       }
 
       if (method === "POST") {
         const n = await request.json() as any;
         await db.prepare(
-          `INSERT INTO notifications (id, driverId, message, createdAt, read) 
+          `INSERT INTO notifications (id, driverId, message, createdAt, "read") 
            VALUES (?, ?, ?, ?, ?)`
         ).bind(
           n.id,
@@ -286,8 +291,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         if (keys.length === 0) return jsonResponse({ error: "No fields to update" }, 400);
 
         const setClause = keys.map(k => {
-          if (k === 'read') return `read = ?`;
-          return `${k} = ?`;
+          if (k === 'read') return `"read" = ?`;
+          return `"${k}" = ?`;
         }).join(", ");
 
         const values = keys.map(k => {
@@ -302,6 +307,54 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       if (method === "DELETE" && idParam) {
         await db.prepare(`DELETE FROM notifications WHERE id = ?`).bind(idParam).run();
+        return jsonResponse({ success: true });
+      }
+    }
+
+    // --- 7. DELETION REQUESTS ---
+    if (path === "/api/deletion-requests" || path.startsWith("/api/deletion-requests/")) {
+      const idParam = path.split("/")[3];
+
+      // Self-healing / table creation
+      await db.prepare(
+        `CREATE TABLE IF NOT EXISTS deletion_requests (
+          id TEXT PRIMARY KEY,
+          reportId TEXT NOT NULL,
+          cafeId TEXT NOT NULL,
+          cafeName TEXT NOT NULL,
+          driverName TEXT NOT NULL,
+          reason TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending'
+        )`
+      ).run();
+
+      if (method === "GET") {
+        const { results } = await db.prepare(`SELECT * FROM deletion_requests ORDER BY timestamp DESC`).all();
+        return jsonResponse(results);
+      }
+
+      if (method === "POST") {
+        const req = await request.json() as any;
+        await db.prepare(
+          `INSERT INTO deletion_requests (id, reportId, cafeId, cafeName, driverName, reason, timestamp, status) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          req.id,
+          req.reportId,
+          req.cafeId,
+          req.cafeName,
+          req.driverName,
+          req.reason,
+          req.timestamp || Date.now(),
+          req.status || 'pending'
+        ).run();
+        return jsonResponse({ success: true });
+      }
+
+      if (method === "PUT" && idParam) {
+        const { status } = await request.json() as any;
+        await db.prepare(`UPDATE deletion_requests SET "status" = ? WHERE id = ?`).bind(status, idParam).run();
         return jsonResponse({ success: true });
       }
     }

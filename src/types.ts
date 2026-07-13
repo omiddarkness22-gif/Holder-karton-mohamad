@@ -43,3 +43,15 @@ export interface DriverStatus {
   lastActive: number;
   isSharingLocation: boolean;
 }
+
+export interface DeletionRequest {
+  id: string;
+  reportId: string;
+  cafeId: string;
+  cafeName: string;
+  driverName: string;
+  reason: string;
+  timestamp: number;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
