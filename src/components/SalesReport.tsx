@@ -668,7 +668,7 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
                         <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0"></span>
                         <span className="shrink-0">تعداد: <span className="text-slate-700 font-extrabold">{toPersianDigits(report.quantitySold)} عدد</span></span>
                       </div>
-                      <span className="text-[9px] text-slate-400 shrink-0">بازاریاب/راننده: <span className="text-slate-600 font-extrabold">{report.driverName}</span></span>
+                      <span className="text-[9px] text-slate-400 shrink-0">ثبت توسط: <span className="text-slate-600 font-extrabold">راننده پخش</span></span>
                     </div>
 
                     {report.notes && (

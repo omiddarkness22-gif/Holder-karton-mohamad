@@ -208,6 +208,30 @@ export const api = {
     return true;
   },
 
+  updateReport: async (id: string, updatedFields: Partial<VisitReport>): Promise<VisitReport | null> => {
+    if (isCloudflare()) {
+      try {
+        const res = await fetch(`/api/reports/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedFields)
+        });
+        if (res.ok) return await res.json();
+      } catch (e) {
+        console.error("Cloudflare API error:", e);
+      }
+    }
+
+    const current = getLocal<VisitReport[]>('cf_reports', []);
+    const idx = current.findIndex(r => r.id === id);
+    if (idx !== -1) {
+      current[idx] = { ...current[idx], ...updatedFields };
+      setLocal('cf_reports', current);
+      return current[idx];
+    }
+    return null;
+  },
+
   // --- PRODUCTS ---
   getProducts: async (): Promise<Product[]> => {
     if (isCloudflare()) {
@@ -293,14 +317,16 @@ export const api = {
         console.error("Cloudflare API error:", e);
       }
     }
-    return getLocal<DriverStatus>('cf_driver_status', {
+    const status = getLocal<DriverStatus>('cf_driver_status', {
       id: 'driver_mohammad',
-      name: 'محمد دزفولی',
+      name: '',
       lat: 32.3855,
       lng: 48.4065,
       lastActive: Date.now(),
       isSharingLocation: false
     });
+    status.name = '';
+    return status;
   },
 
   updateDriverStatus: async (updates: Partial<Omit<DriverStatus, 'id'>>): Promise<boolean> => {
@@ -319,13 +345,13 @@ export const api = {
 
     const current = getLocal<DriverStatus>('cf_driver_status', {
       id: 'driver_mohammad',
-      name: 'محمد دزفولی',
+      name: '',
       lat: 32.3855,
       lng: 48.4065,
       lastActive: Date.now(),
       isSharingLocation: false
     });
-    const updated = { ...current, ...updates };
+    const updated = { ...current, ...updates, name: '' };
     setLocal('cf_driver_status', updated);
     return true;
   },

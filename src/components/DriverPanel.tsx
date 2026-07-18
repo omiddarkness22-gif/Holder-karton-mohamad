@@ -22,6 +22,7 @@ import {
   Bell,
   Plus,
   ShoppingBag,
+  CalendarDays,
 } from 'lucide-react';
 
 interface DriverPanelProps {
@@ -87,6 +88,8 @@ export default function DriverPanel({
   const [basketItems, setBasketItems] = useState<BasketItem[]>([]);
   const [addQuantity, setAddQuantity] = useState<number | ''>(50);
   const [addProductId, setAddProductId] = useState<string>('');
+  const [paymentType, setPaymentType] = useState<'cash' | 'credit'>('cash');
+  const [creditDays, setCreditDays] = useState<number>(7);
 
   // Find currently selected product
   const selectedProduct = useMemo(() => {
@@ -339,6 +342,8 @@ export default function DriverPanel({
           setQuantity(existingReport.quantitySold || 100);
           setTotalPrice(existingReport.totalPrice || 150000);
           setNotes(existingReport.notes || '');
+          setPaymentType(existingReport.paymentType || 'cash');
+          setCreditDays(existingReport.creditDays || 7);
           if (existingReport.productId) {
             setSelectedProductId(existingReport.productId);
           }
@@ -347,6 +352,8 @@ export default function DriverPanel({
       } else {
         setStatus('sold');
         setNotes('');
+        setPaymentType('cash');
+        setCreditDays(7);
         
         // Initialize basket with the first product as a default (100 qty) for convenience
         if (products.length > 0) {
@@ -395,11 +402,17 @@ export default function DriverPanel({
     const reportData: Omit<VisitReport, 'id' | 'timestamp'> = {
         cafeId: selectedCafe.id,
         cafeName: selectedCafe.name,
-        driverName: driverStatus?.name || 'محمد دزفولی',
+        driverName: 'راننده',
         status: status as VisitReport['status'],
         quantitySold: status === 'sold' ? qtyNum : 0,
         totalPrice: status === 'sold' ? totalPrice : 0,
         notes: notes.trim(),
+        ...(status === 'sold' ? {
+          paymentType,
+          creditDays: paymentType === 'credit' ? creditDays : undefined,
+          creditDueDate: paymentType === 'credit' ? Date.now() + creditDays * 24 * 60 * 60 * 1000 : undefined,
+          isPaid: paymentType === 'credit' ? false : undefined
+        } : {})
     };
 
     if (status === 'sold' && basketItems.length > 0) {
@@ -1053,17 +1066,17 @@ export default function DriverPanel({
 
               {/* Show only if SOLD */}
               {status === 'sold' && (
-                <div className="grid grid-cols-1 gap-4 p-4 rounded-2xl bg-emerald-50/40 dark:bg-slate-800/20 border border-emerald-100 dark:border-emerald-950/40 animate-fadeIn">
+                <div className="grid grid-cols-1 gap-4 p-4 rounded-2xl bg-emerald-50/40 border border-emerald-200 animate-fadeIn text-right">
                   
                   <div className="space-y-3">
-                    <label className="text-xs font-black text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5 border-b border-emerald-100 dark:border-emerald-950 pb-1.5">
-                      <ShoppingBag className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    <label className="text-xs font-black text-emerald-800 flex items-center gap-1.5 border-b border-emerald-100 pb-1.5">
+                      <ShoppingBag className="w-4 h-4 text-emerald-600" />
                       <span>اقلام و کالاهای فروخته شده (فاکتور فروش)</span>
                     </label>
 
                     {/* Basket Items List */}
                     {basketItems.length === 0 ? (
-                      <div className="text-center py-4 text-xs font-bold text-slate-400 bg-white/50 dark:bg-slate-900/30 rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                      <div className="text-center py-4 text-xs font-bold text-slate-400 bg-white rounded-xl border border-dashed border-slate-300">
                         هیچ محصولی در فاکتور اضافه نشده است. لطفاً از بخش زیر محصول اضافه کنید.
                       </div>
                     ) : (
@@ -1071,22 +1084,22 @@ export default function DriverPanel({
                         {basketItems.map((item) => (
                           <div 
                             key={item.productId} 
-                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-white dark:bg-slate-900/80 rounded-xl border border-slate-100 dark:border-slate-800/50 shadow-xs"
+                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 bg-white rounded-xl border border-slate-200 shadow-xs"
                           >
                             <div className="flex flex-col text-right">
-                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{item.productName}</span>
-                              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold">
+                              <span className="text-xs font-bold text-slate-800">{item.productName}</span>
+                              <span className="text-[10px] text-slate-500 font-bold">
                                 قیمت واحد: {toPersianDigits(formatPrice(item.unitPrice))} تومان
                               </span>
                             </div>
 
                             <div className="flex items-center justify-between sm:justify-end gap-3.5">
                               {/* Quantity Editor */}
-                              <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-850 px-2 py-1 rounded-lg border border-slate-200/60 dark:border-slate-700/50">
+                              <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-300">
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateBasketItemQty(item.productId, item.quantity - 1)}
-                                  className="w-5 h-5 rounded bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-750 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold flex items-center justify-center transition-colors text-sm"
+                                  className="w-5 h-5 rounded bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-extrabold flex items-center justify-center transition-colors text-sm"
                                 >
                                   -
                                 </button>
@@ -1103,12 +1116,12 @@ export default function DriverPanel({
                                       handleUpdateBasketItemQty(item.productId, 1);
                                     }
                                   }}
-                                  className="w-12 text-center bg-transparent border-0 font-sans font-black text-xs text-black dark:text-white focus:outline-none"
+                                  className="w-12 text-center bg-white border border-slate-300 rounded px-1 font-sans font-black text-xs text-black focus:outline-none"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => handleUpdateBasketItemQty(item.productId, item.quantity + 1)}
-                                  className="w-5 h-5 rounded bg-slate-200/80 hover:bg-slate-300 dark:bg-slate-750 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-extrabold flex items-center justify-center transition-colors text-sm"
+                                  className="w-5 h-5 rounded bg-slate-200/80 hover:bg-slate-300 text-slate-700 font-extrabold flex items-center justify-center transition-colors text-sm"
                                 >
                                   +
                                 </button>
@@ -1116,7 +1129,7 @@ export default function DriverPanel({
 
                               {/* Price Display */}
                               <div className="text-left min-w-[90px]">
-                                <span className="text-[11px] font-black text-slate-800 dark:text-slate-200">
+                                <span className="text-[11px] font-black text-slate-800">
                                   {toPersianDigits(formatPrice(item.totalPrice))} تومان
                                 </span>
                               </div>
@@ -1125,7 +1138,7 @@ export default function DriverPanel({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveBasketItem(item.productId)}
-                                className="text-red-500 hover:text-red-600 p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors cursor-pointer"
+                                className="text-red-500 hover:text-red-600 p-1 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                               >
                                 <Trash2 className="w-4 h-4" />
                               </button>
@@ -1137,20 +1150,20 @@ export default function DriverPanel({
                   </div>
 
                   {/* Add Product Section */}
-                  <div className="bg-slate-100/50 dark:bg-slate-900/30 p-3.5 rounded-xl border border-slate-200/40 dark:border-slate-800/40 space-y-3 mt-1">
-                    <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 block">
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3 mt-1">
+                    <span className="text-[10px] font-extrabold text-slate-600 block">
                       ➕ افزودن کالا/محصول جدید به این فاکتور:
                     </span>
                     
                     <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
                       {/* Product select */}
                       <div className="sm:col-span-6 space-y-1">
-                        <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">انتخاب محصول:</label>
+                        <label className="text-[10px] font-bold text-slate-500 block">انتخاب محصول:</label>
                         <select
                           id="add_product_select"
                           value={addProductId}
                           onChange={(e) => setAddProductId(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-black dark:text-white focus:outline-none focus:border-emerald-500"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-black focus:outline-none focus:border-emerald-500"
                         >
                           {products.map((p) => (
                             <option key={p.id} value={p.id} className="text-black bg-white">
@@ -1162,7 +1175,7 @@ export default function DriverPanel({
 
                       {/* Quantity input */}
                       <div className="sm:col-span-3 space-y-1">
-                        <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block">تعداد:</label>
+                        <label className="text-[10px] font-bold text-slate-500 block">تعداد:</label>
                         <input
                           id="add_product_qty"
                           type="tel"
@@ -1178,7 +1191,7 @@ export default function DriverPanel({
                             }
                           }}
                           placeholder="مثال: ۵۰"
-                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-black text-black dark:text-white focus:outline-none focus:border-emerald-500"
+                          className="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-black text-black focus:outline-none focus:border-emerald-500"
                         />
                       </div>
 
@@ -1196,24 +1209,113 @@ export default function DriverPanel({
                     </div>
                   </div>
 
+                  {/* Payment Type Section */}
+                  <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3 mt-1">
+                    <span className="text-[10px] font-extrabold text-slate-600 block">
+                      💳 نوع پرداخت و تسویه فاکتور:
+                    </span>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Cash */}
+                      <label className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
+                        paymentType === 'cash'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-400/20'
+                          : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-600'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="paymentType"
+                          value="cash"
+                          checked={paymentType === 'cash'}
+                          onChange={() => setPaymentType('cash')}
+                          className="hidden"
+                        />
+                        <DollarSign className="w-4 h-4 text-emerald-600" />
+                        <span>💵 فروش نقدی (تسویه آنی)</span>
+                      </label>
+
+                      {/* Credit */}
+                      <label className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl border text-xs font-extrabold cursor-pointer transition-all ${
+                        paymentType === 'credit'
+                          ? 'bg-orange-50 text-orange-800 border-orange-300 ring-2 ring-orange-400/20'
+                          : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-600'
+                      }`}>
+                        <input
+                          type="radio"
+                          name="paymentType"
+                          value="credit"
+                          checked={paymentType === 'credit'}
+                          onChange={() => setPaymentType('credit')}
+                          className="hidden"
+                        />
+                        <CalendarDays className="w-4 h-4 text-orange-600" />
+                        <span>⏳ فروش اعتباری (مدت‌دار)</span>
+                      </label>
+                    </div>
+
+                    {/* Credit Days Selector */}
+                    {paymentType === 'credit' && (
+                      <div className="pt-2 border-t border-dashed border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-fadeIn">
+                        <div className="flex flex-col gap-0.5 text-right">
+                          <span className="text-[10px] font-bold text-slate-600">مهلت تسویه حساب:</span>
+                          <span className="text-[9px] text-slate-400 font-bold">مدت زمان مجاز کافه برای پرداخت بدهی فاکتور</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-2 justify-end">
+                          <select
+                            value={creditDays}
+                            onChange={(e) => setCreditDays(parseInt(e.target.value, 10))}
+                            className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-black text-black focus:outline-none focus:border-orange-500"
+                          >
+                            <option value={5}>۵ روزه</option>
+                            <option value={7}>۷ روزه (پیش‌فرض)</option>
+                            <option value={10}>۱۰ روزه</option>
+                            <option value={15}>۱۵ روزه</option>
+                            <option value={20}>۲۰ روزه</option>
+                            <option value={30}>۳۰ روزه</option>
+                            <option value={45}>۴۵ روزه</option>
+                            <option value={60}>۶۰ روزه</option>
+                          </select>
+                          
+                          <div className="flex items-center gap-1 bg-white border border-slate-300 rounded-lg px-2 py-1">
+                            <input
+                              type="tel"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={creditDays}
+                              onChange={(e) => {
+                                const cleanVal = toEnglishDigits(e.target.value).replace(/\D/g, '');
+                                if (cleanVal !== '') {
+                                  setCreditDays(Math.max(1, parseInt(cleanVal, 10)));
+                                }
+                              }}
+                              className="w-10 text-center font-sans font-black text-xs text-black border-0 focus:outline-none"
+                            />
+                            <span className="text-[10px] font-bold text-slate-500">روز</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Summary Footer */}
                   {basketItems.length > 0 && (
-                    <div className="mt-2 pt-3 border-t border-dashed border-emerald-100 dark:border-emerald-950 flex flex-col gap-2">
-                      <div className="flex items-center justify-between bg-emerald-100/30 dark:bg-emerald-950/10 p-3 rounded-xl border border-emerald-100/50 dark:border-emerald-950/30">
+                    <div className="mt-2 pt-3 border-t border-dashed border-emerald-100 flex flex-col gap-2">
+                      <div className="flex items-center justify-between bg-emerald-50 border border-emerald-100 p-3 rounded-xl">
                         <div className="flex flex-col text-right">
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">جمع کل اقلام سفارش:</span>
-                          <span className="text-xs font-black text-slate-800 dark:text-slate-100">
+                          <span className="text-[10px] font-bold text-slate-500">جمع کل اقلام سفارش:</span>
+                          <span className="text-xs font-black text-slate-800">
                             {toPersianDigits(quantity || 0)} عدد کالا
                           </span>
                         </div>
                         <div className="flex flex-col text-left">
-                          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">جمع کل مبلغ فاکتور:</span>
-                          <span className="text-sm font-black text-emerald-600 dark:text-emerald-400">
+                          <span className="text-[10px] font-bold text-slate-500">جمع کل مبلغ فاکتور:</span>
+                          <span className="text-sm font-black text-emerald-600">
                             {toPersianDigits(formatPrice(totalPrice))} تومان
                           </span>
                         </div>
                       </div>
-                      <p className="text-[10px] text-orange-600 dark:text-orange-400 font-extrabold flex items-center gap-1">
+                      <p className="text-[10px] text-orange-600 font-extrabold flex items-center gap-1">
                         <span>⚠️ تعیین قیمت فروش منحصراً بر اساس نرخ مصوب مدیریت می‌باشد.</span>
                       </p>
                     </div>
@@ -1224,14 +1326,14 @@ export default function DriverPanel({
 
               {/* General description box */}
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">توضیحات و بازخورد مدیر کافه:</label>
+                <label className="text-xs font-bold text-slate-700">توضیحات و بازخورد مدیر کافه:</label>
                 <textarea
                   id="form_notes"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="مثال: مایل به سفارش با لوگوی اختصاصی کافه خودشان هستند / فردا دوباره تماس گرفته شود..."
                   rows={3}
-                  className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-xl text-xs focus:outline-none focus:border-orange-600 dark:focus:border-orange-500 focus:bg-white dark:focus:bg-slate-850 resize-none text-black dark:text-white leading-relaxed font-black text-right"
+                  className="w-full px-4 py-2 bg-white border border-slate-300 rounded-xl text-xs focus:outline-none focus:border-orange-600 resize-none text-black leading-relaxed font-black text-right placeholder-slate-400"
                 />
               </div>
 

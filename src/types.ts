@@ -25,6 +25,10 @@ export interface VisitReport {
   timestamp: number;
   productId?: string;
   productName?: string;
+  paymentType?: 'cash' | 'credit';
+  creditDays?: number;
+  creditDueDate?: number;
+  isPaid?: boolean;
 }
 
 export interface Product {

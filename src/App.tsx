@@ -7,6 +7,7 @@ import DriverPanel from './components/DriverPanel';
 import MapComponent from './components/MapComponent';
 import AdminLogin from './components/AdminLogin';
 import ShamsiDatePicker from './components/ShamsiDatePicker';
+import SalesReport from './components/SalesReport';
 import { g_to_j, JALALI_MONTH_NAMES } from './lib/shamsi';
 import { motion, AnimatePresence } from 'motion/react';
 import { Coffee, Info, MessageSquareCode, Sparkles, Bell } from 'lucide-react';
@@ -95,6 +96,7 @@ export default function App() {
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     return localStorage.getItem('isAdminAuthenticated') === 'true';
   });
+  const [adminActiveTab, setAdminActiveTab] = useState<'dashboard' | 'cafes' | 'sales' | 'products' | 'reports' | 'settings'>('dashboard');
   const [cafes, setCafes] = useState<Cafe[]>([]);
   const [reports, setReports] = useState<VisitReport[]>([]);
   const [deletionRequests, setDeletionRequests] = useState<DeletionRequest[]>([]);
@@ -352,6 +354,17 @@ export default function App() {
     }
   };
 
+  const handleUpdateReport = async (reportId: string, updatedFields: Partial<VisitReport>) => {
+    try {
+      const updated = await api.updateReport(reportId, updatedFields);
+      if (updated) {
+        setReports(prev => prev.map(r => r.id === reportId ? { ...r, ...updatedFields } : r));
+      }
+    } catch (error) {
+      console.error("Error updating report:", error);
+    }
+  };
+
   const handleDeleteReport = async (reportId: string, cafeId: string) => {
     try {
       // 1. Delete from storage
@@ -556,11 +569,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Grid layout containing MAP (left) and CONTEXT CONTROL (right) */}
+            {/* Grid layout containing MAP and CONTEXT CONTROL */}
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               
-              {/* Left Side: Leaflet Interactive Map View (7 of 12 columns on large displays) */}
-              <div className="xl:col-span-7 h-[450px] md:h-[550px] bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden p-2 flex flex-col justify-between" id="map_visualizer_card">
+              {/* Map View - Full width for admin, side-by-side for driver */}
+              <div className={`${
+                currentRole === 'admin' ? 'xl:col-span-12 h-[380px]' : 'xl:col-span-7 h-[450px] md:h-[550px]'
+              } bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden p-2 flex flex-col justify-between transition-all duration-350`} id="map_visualizer_card">
                 <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 mb-2">
                   <span className="text-xs font-extrabold text-slate-700 rtl text-right">نقشه زنده کافه‌های دزفول</span>
                   <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
@@ -584,8 +599,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Right Side: Active Context Dashboard (5 of 12 columns) */}
-              <div className="xl:col-span-5 flex flex-col gap-6" id="dashboard_context_container">
+              {/* Active Context Dashboard - Full width for admin, side-by-side for driver */}
+              <div className={`${
+                currentRole === 'admin' ? 'xl:col-span-12' : 'xl:col-span-5'
+              } flex flex-col gap-6 transition-all duration-350`} id="dashboard_context_container">
                 <AnimatePresence mode="wait">
                   <motion.div
                     key={currentRole}
@@ -619,6 +636,7 @@ export default function App() {
                           onDeleteCafe={handleDeleteCafe}
                           onAssignDate={handleAssignDate}
                           onDeleteReport={handleDeleteReport}
+                          onUpdateReport={handleUpdateReport}
                           isAddingCafeMode={isAddingCafeMode}
                           setIsAddingCafeMode={setIsAddingCafeMode}
                           newCafeCoords={newCafeCoords}
@@ -630,6 +648,8 @@ export default function App() {
                           activeDate={activeDate}
                           darkMode={darkMode}
                           toggleDarkMode={toggleDarkMode}
+                          activeTab={adminActiveTab}
+                          setActiveTab={setAdminActiveTab}
                         />
                       )
                     ) : (
