@@ -564,10 +564,10 @@ export default function AdminPanel({
                 </div>
 
                 {/* Revenue */}
-                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between hover:scale-[1.02] transition-all duration-300">
-                  <span className="text-xs font-bold text-slate-400">فروش کل (تومان)</span>
-                  <div className="flex items-baseline gap-1 mt-2">
-                    <span className="text-2xl font-black text-emerald-600 font-sans">
+                <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-sm flex flex-col justify-between hover:scale-[1.02] transition-all duration-300 min-w-0 overflow-hidden">
+                  <span className="text-xs font-bold text-slate-400 truncate">فروش کل (تومان)</span>
+                  <div className="flex items-baseline gap-1 mt-2 min-w-0 overflow-hidden">
+                    <span className="text-lg sm:text-xl md:text-2xl font-black text-emerald-600 font-sans truncate" title={toPersianDigits(formatPrice(stats.totalRevenue))}>
                       {toPersianDigits(formatPrice(stats.totalRevenue))}
                     </span>
                   </div>
@@ -584,22 +584,22 @@ export default function AdminPanel({
               {/* Selected Cafe Operations details */}
               {selectedCafe ? (
                 <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-sm" id="selected_cafe_details">
-                  <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                  <div className="flex flex-col gap-4 pb-4 border-b border-slate-100" id="cafe_details_header_box">
                     <div>
                       <span className="text-[10px] text-orange-600 font-extrabold tracking-widest uppercase">مشخصات کافه انتخابی</span>
                       <h2 className="text-base font-black text-slate-800 flex items-center gap-1.5 mt-1">
-                        <Coffee className="w-5 h-5 text-orange-600" />
-                        {selectedCafe.name}
+                        <Coffee className="w-5 h-5 text-orange-600 shrink-0" />
+                        <span className="truncate" title={selectedCafe.name}>{selectedCafe.name}</span>
                       </h2>
-                      <p className="text-xs text-slate-500 mt-1 flex items-center gap-1 font-medium">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                        {selectedCafe.address}
+                      <p className="text-xs text-slate-500 mt-1 flex items-center gap-1 font-medium leading-relaxed">
+                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{selectedCafe.address}</span>
                       </p>
                     </div>
 
-                    <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 w-full md:w-auto">
+                    <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 w-full" id="cafe_details_actions_row">
                       {/* Advanced Date Assigner Box */}
-                      <div className="flex flex-col lg:flex-row items-stretch lg:items-center gap-4 bg-slate-50 border border-slate-200/60 p-3.5 rounded-2xl w-full" id="date_assigner_container">
+                      <div className="flex flex-col md:flex-row items-stretch md:items-center gap-4 bg-slate-50 border border-slate-200/60 p-3.5 rounded-2xl w-full lg:flex-1" id="date_assigner_container">
                         {/* Today Quick Option */}
                         <div className="flex items-center gap-2 border-l-0 lg:border-l border-slate-200/80 pl-0 lg:pl-3">
                           <button

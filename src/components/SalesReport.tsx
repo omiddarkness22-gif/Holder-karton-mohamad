@@ -289,8 +289,16 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
     document.body.removeChild(link);
   };
 
+  // Helper to dynamically size font based on character length to prevent horizontal overflow/leakage
+  const getResponsiveFontClass = (valStr: string) => {
+    const len = valStr.length;
+    if (len > 12) return 'text-sm sm:text-base md:text-lg lg:text-xs xl:text-base';
+    if (len > 9) return 'text-base sm:text-lg md:text-xl lg:text-sm xl:text-lg';
+    return 'text-lg sm:text-xl md:text-2xl';
+  };
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 flex flex-col gap-6" id="sales_comprehensive_report">
+    <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 flex flex-col gap-6 overflow-hidden" id="sales_comprehensive_report">
       
       {/* Header with Title and Time Selector */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
@@ -332,82 +340,82 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" id="sales_metrics_bento">
         
         {/* Card 1: Total Revenue */}
-        <div className="bg-gradient-to-br from-emerald-500/5 to-emerald-500/10 border border-emerald-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-emerald-700">مجموع مبالغ فروخته شده</span>
-            <div className="bg-emerald-500/10 p-1.5 rounded-lg text-emerald-600">
+        <div className="bg-gradient-to-br from-emerald-500/5 to-emerald-500/10 border border-emerald-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300 overflow-hidden min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-[11px] font-bold text-emerald-700 truncate">مجموع مبالغ فروخته شده</span>
+            <div className="bg-emerald-500/10 p-1.5 rounded-lg text-emerald-600 shrink-0">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <div className="flex items-baseline gap-1 mt-4">
-            <span className="text-xl md:text-2xl font-black text-emerald-600 font-sans">
+          <div className="flex flex-wrap items-baseline gap-1 mt-4 overflow-hidden min-w-0">
+            <span className={`${getResponsiveFontClass(toPersianDigits(formatPrice(aggregates.totalRevenue)))} font-black text-emerald-600 font-sans truncate`} title={toPersianDigits(formatPrice(aggregates.totalRevenue))}>
               {toPersianDigits(formatPrice(aggregates.totalRevenue))}
             </span>
-            <span className="text-[10px] text-emerald-700 font-bold">تومان</span>
+            <span className="text-[10px] text-emerald-700 font-bold shrink-0">تومان</span>
           </div>
-          <div className="text-[10px] text-emerald-600 mt-3 flex items-center gap-1 font-bold">
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>تسویه نقدی/چک در این بازه</span>
+          <div className="text-[10px] text-emerald-600 mt-3 flex items-center gap-1 font-bold min-w-0">
+            <TrendingUp className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">تسویه نقدی/چک در این بازه</span>
           </div>
         </div>
 
         {/* Card 2: Total Holders Sold */}
-        <div className="bg-gradient-to-br from-orange-500/5 to-orange-500/10 border border-orange-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-orange-700">تعداد کل محصولات فروخته شده</span>
-            <div className="bg-orange-500/10 p-1.5 rounded-lg text-orange-600">
+        <div className="bg-gradient-to-br from-orange-500/5 to-orange-500/10 border border-orange-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300 overflow-hidden min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-[11px] font-bold text-orange-700 truncate">تعداد کل محصولات فروخته شده</span>
+            <div className="bg-orange-500/10 p-1.5 rounded-lg text-orange-600 shrink-0">
               <ShoppingBag className="w-4 h-4" />
             </div>
           </div>
-          <div className="flex items-baseline gap-1 mt-4">
-            <span className="text-xl md:text-2xl font-black text-orange-600 font-sans">
+          <div className="flex flex-wrap items-baseline gap-1 mt-4 overflow-hidden min-w-0">
+            <span className={`${getResponsiveFontClass(toPersianDigits(aggregates.totalQty))} font-black text-orange-600 font-sans truncate`} title={toPersianDigits(aggregates.totalQty)}>
               {toPersianDigits(aggregates.totalQty)}
             </span>
-            <span className="text-[10px] text-orange-700 font-bold">عدد کارتن</span>
+            <span className="text-[10px] text-orange-700 font-bold shrink-0">عدد کارتن</span>
           </div>
-          <div className="text-[10px] text-orange-600 mt-3 flex items-center gap-1 font-bold">
-            <Package className="w-3.5 h-3.5" />
-            <span>میانگین {toPersianDigits(aggregates.successfulInvoices > 0 ? Math.round(aggregates.totalQty / aggregates.successfulInvoices) : 0)} عدد در هر خرید</span>
+          <div className="text-[10px] text-orange-600 mt-3 flex items-center gap-1 font-bold min-w-0">
+            <Package className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">میانگین {toPersianDigits(aggregates.successfulInvoices > 0 ? Math.round(aggregates.totalQty / aggregates.successfulInvoices) : 0)} عدد در هر خرید</span>
           </div>
         </div>
 
         {/* Card 3: Total Invoices */}
-        <div className="bg-gradient-to-br from-blue-500/5 to-blue-500/10 border border-blue-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-blue-700">تعداد فاکتورهای موفق</span>
-            <div className="bg-blue-500/10 p-1.5 rounded-lg text-blue-600">
+        <div className="bg-gradient-to-br from-blue-500/5 to-blue-500/10 border border-blue-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300 overflow-hidden min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-[11px] font-bold text-blue-700 truncate">تعداد فاکتورهای موفق</span>
+            <div className="bg-blue-500/10 p-1.5 rounded-lg text-blue-600 shrink-0">
               <CheckCircle2 className="w-4 h-4" />
             </div>
           </div>
-          <div className="flex items-baseline gap-1 mt-4">
-            <span className="text-xl md:text-2xl font-black text-blue-600 font-sans">
+          <div className="flex flex-wrap items-baseline gap-1 mt-4 overflow-hidden min-w-0">
+            <span className={`${getResponsiveFontClass(toPersianDigits(aggregates.successfulInvoices))} font-black text-blue-600 font-sans truncate`} title={toPersianDigits(aggregates.successfulInvoices)}>
               {toPersianDigits(aggregates.successfulInvoices)}
             </span>
-            <span className="text-[10px] text-blue-700 font-bold">فاکتور ثبت‌شده</span>
+            <span className="text-[10px] text-blue-700 font-bold shrink-0">فاکتور ثبت‌شده</span>
           </div>
-          <div className="text-[10px] text-blue-600 mt-3 flex items-center gap-1 font-bold">
-            <Percent className="w-3.5 h-3.5" />
-            <span>نرخ موفقیت ویزیت: ٪{toPersianDigits(visitMetrics.conversionRate)}</span>
+          <div className="text-[10px] text-blue-600 mt-3 flex items-center gap-1 font-bold min-w-0">
+            <Percent className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">نرخ موفقیت ویزیت: ٪{toPersianDigits(visitMetrics.conversionRate)}</span>
           </div>
         </div>
 
         {/* Card 4: Average Invoice Value */}
-        <div className="bg-gradient-to-br from-purple-500/5 to-purple-500/10 border border-purple-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-purple-700">میانگین ارزش فاکتورها</span>
-            <div className="bg-purple-500/10 p-1.5 rounded-lg text-purple-600">
+        <div className="bg-gradient-to-br from-purple-500/5 to-purple-500/10 border border-purple-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300 overflow-hidden min-w-0">
+          <div className="flex items-center justify-between min-w-0">
+            <span className="text-[11px] font-bold text-purple-700 truncate">میانگین ارزش فاکتورها</span>
+            <div className="bg-purple-500/10 p-1.5 rounded-lg text-purple-600 shrink-0">
               <Award className="w-4 h-4" />
             </div>
           </div>
-          <div className="flex items-baseline gap-1 mt-4">
-            <span className="text-xl md:text-2xl font-black text-purple-600 font-sans">
+          <div className="flex flex-wrap items-baseline gap-1 mt-4 overflow-hidden min-w-0">
+            <span className={`${getResponsiveFontClass(toPersianDigits(formatPrice(aggregates.avgInvoiceValue)))} font-black text-purple-600 font-sans truncate`} title={toPersianDigits(formatPrice(aggregates.avgInvoiceValue))}>
               {toPersianDigits(formatPrice(aggregates.avgInvoiceValue))}
             </span>
-            <span className="text-[10px] text-purple-700 font-bold">تومان</span>
+            <span className="text-[10px] text-purple-700 font-bold shrink-0">تومان</span>
           </div>
-          <div className="text-[10px] text-slate-500 mt-3 flex items-center gap-1 font-bold">
-            <Coffee className="w-3.5 h-3.5 text-purple-500" />
-            <span>مجموع ویزیت‌ها در بازه: {toPersianDigits(visitMetrics.totalVisits)}</span>
+          <div className="text-[10px] text-slate-500 mt-3 flex items-center gap-1 font-bold min-w-0">
+            <Coffee className="w-3.5 h-3.5 text-purple-500 shrink-0" />
+            <span className="truncate">مجموع ویزیت‌ها در بازه: {toPersianDigits(visitMetrics.totalVisits)}</span>
           </div>
         </div>
 
@@ -502,10 +510,10 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
               </div>
             ) : (
               productBreakdown.map((prod) => (
-                <div key={prod.id} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-extrabold text-slate-700 truncate max-w-[150px]">{prod.name}</span>
-                    <span className="font-black text-slate-800 font-sans">
+                <div key={prod.id} className="space-y-1 min-w-0">
+                  <div className="flex items-center justify-between text-xs gap-2 min-w-0">
+                    <span className="font-extrabold text-slate-700 truncate flex-1" title={prod.name}>{prod.name}</span>
+                    <span className="font-black text-slate-800 font-sans shrink-0">
                       ٪{toPersianDigits(prod.sharePercent)}
                     </span>
                   </div>
@@ -516,18 +524,18 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
                       style={{ width: `${prod.sharePercent}%` }}
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-slate-400 font-bold">
-                    <span>{toPersianDigits(prod.quantity)} عدد فروخته شده</span>
-                    <span>{toPersianDigits(formatPrice(prod.revenue))} تومان</span>
+                  <div className="flex justify-between text-[10px] text-slate-400 font-bold min-w-0 gap-2">
+                    <span className="truncate">{toPersianDigits(prod.quantity)} عدد فروخته شده</span>
+                    <span className="shrink-0">{toPersianDigits(formatPrice(prod.revenue))} تومان</span>
                   </div>
                 </div>
               ))
             )}
           </div>
 
-          <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-2.5 flex items-center gap-2 text-[10px] text-emerald-800 font-bold">
-            <TrendingUp className="w-4 h-4 text-emerald-600" />
-            <span>محبوب‌ترین محصول: {productBreakdown[0]?.name || 'ثبت نشده'}</span>
+          <div className="bg-emerald-50/60 border border-emerald-100 rounded-xl p-2.5 flex items-center gap-2 text-[10px] text-emerald-800 font-bold overflow-hidden min-w-0">
+            <TrendingUp className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="truncate" title={productBreakdown[0]?.name}>محبوب‌ترین محصول: {productBreakdown[0]?.name || 'ثبت نشده'}</span>
           </div>
         </div>
 
@@ -537,13 +545,13 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5" id="sales_tables_sections">
         
         {/* Top 5 Cafes (5 Cols) */}
-        <div className="lg:col-span-5 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-4 flex flex-col gap-3">
-          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-            <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-orange-600" />
+        <div className="lg:col-span-5 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-4 flex flex-col gap-3 overflow-hidden min-w-0">
+          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 min-w-0 gap-2">
+            <h3 className="text-xs font-extrabold text-slate-800 flex items-center gap-1.5 truncate">
+              <Award className="w-4 h-4 text-orange-600 shrink-0" />
               <span>مشتریان برتر (۵ کافه اول پرخرید)</span>
             </h3>
-            <span className="text-[9px] font-sans font-extrabold text-slate-400">بر اساس مبلغ خرید</span>
+            <span className="text-[9px] font-sans font-extrabold text-slate-400 shrink-0">بر اساس مبلغ خرید</span>
           </div>
 
           <div className="divide-y divide-slate-100 flex-1 overflow-y-auto max-h-[280px]">
@@ -553,22 +561,22 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
               </div>
             ) : (
               topCafes.map((cafe, idx) => (
-                <div key={cafe.id} className="py-2.5 flex items-center justify-between gap-2 hover:bg-slate-50/40 rounded transition-all">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black ${
+                <div key={cafe.id} className="py-2.5 flex items-center justify-between gap-2 hover:bg-slate-50/40 rounded transition-all min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <span className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black shrink-0 ${
                       idx === 0 ? 'bg-amber-100 text-amber-800' :
                       idx === 1 ? 'bg-slate-100 text-slate-700' :
                       idx === 2 ? 'bg-orange-100 text-orange-800' : 'bg-slate-50 text-slate-400'
                     }`}>
                       {toPersianDigits(idx + 1)}
                     </span>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-black text-slate-800">{cafe.name}</span>
-                      <span className="text-[9px] text-slate-400 font-medium">مجموع دفعات خرید: {toPersianDigits(cafe.visitsCount)} بار</span>
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-xs font-black text-slate-800 truncate" title={cafe.name}>{cafe.name}</span>
+                      <span className="text-[9px] text-slate-400 font-medium truncate">مجموع دفعات خرید: {toPersianDigits(cafe.visitsCount)} بار</span>
                     </div>
                   </div>
 
-                  <div className="text-left flex flex-col items-end">
+                  <div className="text-left flex flex-col items-end shrink-0">
                     <span className="text-xs font-black text-emerald-600 font-sans">{toPersianDigits(formatPrice(cafe.totalRevenue))} <span className="text-[9px] text-slate-400 font-medium">تومان</span></span>
                     <span className="text-[10px] text-slate-500 font-bold font-sans">{toPersianDigits(cafe.totalQty)} عدد کارتن</span>
                   </div>
@@ -643,24 +651,24 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
                 const fullDate = getPersianDateFull(report.timestamp);
 
                 return (
-                  <div key={report.id} className="py-2.5 flex flex-col gap-1.5 hover:bg-slate-50/50 rounded px-1.5 transition-all">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-black text-slate-800">{report.cafeName}</span>
-                        <span className="text-[9px] text-slate-400 font-sans font-medium">({fullDate} - {timeStr})</span>
+                  <div key={report.id} className="py-2.5 flex flex-col gap-1.5 hover:bg-slate-50/50 rounded px-1.5 transition-all min-w-0">
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                        <span className="text-xs font-black text-slate-800 truncate" title={report.cafeName}>{report.cafeName}</span>
+                        <span className="text-[9px] text-slate-400 font-sans font-medium shrink-0">({fullDate} - {timeStr})</span>
                       </div>
-                      <span className="text-[11px] font-black text-emerald-600 font-sans">
+                      <span className="text-[11px] font-black text-emerald-600 font-sans shrink-0">
                         {toPersianDigits(formatPrice(report.totalPrice))} <span className="text-[9px] text-slate-400 font-medium">تومان</span>
                       </span>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-500">
-                      <div className="flex items-center gap-2 font-bold">
-                        <span>محصول: <span className="text-slate-700 font-extrabold">{report.productName || 'کارتن عمومی'}</span></span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
-                        <span>تعداد: <span className="text-slate-700 font-extrabold">{toPersianDigits(report.quantitySold)} عدد</span></span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-500 min-w-0">
+                      <div className="flex items-center gap-2 font-bold min-w-0 flex-1 truncate">
+                        <span className="truncate">محصول: <span className="text-slate-700 font-extrabold">{report.productName || 'کارتن عمومی'}</span></span>
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0"></span>
+                        <span className="shrink-0">تعداد: <span className="text-slate-700 font-extrabold">{toPersianDigits(report.quantitySold)} عدد</span></span>
                       </div>
-                      <span className="text-[9px] text-slate-400">بازاریاب/راننده: <span className="text-slate-600 font-extrabold">{report.driverName}</span></span>
+                      <span className="text-[9px] text-slate-400 shrink-0">بازاریاب/راننده: <span className="text-slate-600 font-extrabold">{report.driverName}</span></span>
                     </div>
 
                     {report.notes && (
