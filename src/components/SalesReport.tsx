@@ -29,7 +29,14 @@ import {
   Percent,
   FileSpreadsheet,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Clock,
+  Phone,
+  AlertTriangle,
+  Check,
+  MapPin,
+  User,
+  Layers
 } from 'lucide-react';
 import { VisitReport, Cafe, Product } from '../types';
 import { g_to_j, JALALI_MONTH_NAMES, toPersianDigits as toPersianDigitsShamsi } from '../lib/shamsi';
@@ -38,14 +45,20 @@ interface SalesReportProps {
   reports: VisitReport[];
   cafes: Cafe[];
   products: Product[];
+  onUpdateReport?: (reportId: string, updatedFields: Partial<VisitReport>) => Promise<void>;
 }
 
 type TimePeriod = 'today' | '7days' | '30days' | 'all';
+type SalesSection = 'charts' | 'dues' | 'monthly' | 'invoices' | 'all';
 
-export default function SalesReport({ reports, cafes, products }: SalesReportProps) {
+export default function SalesReport({ reports, cafes, products, onUpdateReport }: SalesReportProps) {
   const [period, setPeriod] = useState<TimePeriod>('30days');
+  const [activeSection, setActiveSection] = useState<SalesSection>('charts');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedProductFilter, setSelectedProductFilter] = useState<string>('all');
+  const [creditDueFilter, setCreditDueFilter] = useState<'3days' | 'overdue_and_3days' | 'all_unpaid'>('3days');
+  const [settlingReportId, setSettlingReportId] = useState<string | null>(null);
+  const [settledSuccessToast, setSettledSuccessToast] = useState<string | null>(null);
 
   // Helper: format prices beautifully in Toman
   const formatPrice = (amount: number) => {
@@ -239,7 +252,6 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
     return salesReports.filter((r) => {
       const matchesSearch =
         r.cafeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        r.driverName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (r.notes && r.notes.toLowerCase().includes(searchQuery.toLowerCase()));
       
       const matchesProduct =
@@ -249,23 +261,281 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
     }).sort((a, b) => b.timestamp - a.timestamp);
   }, [salesReports, searchQuery, selectedProductFilter]);
 
+  // Aggregate reports by Persian month for the Monthly Reports List
+  const monthlyReportsSummary = useMemo(() => {
+    const map: Record<string, {
+      key: string;
+      year: number;
+      month: number;
+      monthName: string;
+      label: string;
+      totalVisits: number;
+      soldCount: number;
+      noSaleCount: number;
+      closedCount: number;
+      callbackCount: number;
+      totalRevenue: number;
+      totalQuantity: number;
+      averageInvoice: number;
+      conversionRate: number;
+      uniqueCafesCount: number;
+      topProductName: string;
+      cashRevenue: number;
+      creditRevenue: number;
+      reports: VisitReport[];
+      soldReports: VisitReport[];
+    }> = {};
+
+    reports.forEach((r) => {
+      const d = new Date(r.timestamp);
+      const [jy, jm, jd] = g_to_j(d.getFullYear(), d.getMonth() + 1, d.getDate());
+      const key = `${jy}-${String(jm).padStart(2, '0')}`;
+      const monthName = JALALI_MONTH_NAMES[jm - 1] || `ماه ${jm}`;
+      const label = `${monthName} ${toPersianDigits(jy)}`;
+
+      if (!map[key]) {
+        map[key] = {
+          key,
+          year: jy,
+          month: jm,
+          monthName,
+          label,
+          totalVisits: 0,
+          soldCount: 0,
+          noSaleCount: 0,
+          closedCount: 0,
+          callbackCount: 0,
+          totalRevenue: 0,
+          totalQuantity: 0,
+          averageInvoice: 0,
+          conversionRate: 0,
+          uniqueCafesCount: 0,
+          topProductName: '—',
+          cashRevenue: 0,
+          creditRevenue: 0,
+          reports: [],
+          soldReports: []
+        };
+      }
+
+      const item = map[key];
+      item.totalVisits += 1;
+      item.reports.push(r);
+
+      if (r.status === 'sold') {
+        item.soldCount += 1;
+        item.totalRevenue += (r.totalPrice || 0);
+        item.totalQuantity += (r.quantitySold || 0);
+        item.soldReports.push(r);
+        if (r.paymentType === 'cash') {
+          item.cashRevenue += (r.totalPrice || 0);
+        } else if (r.paymentType === 'credit') {
+          item.creditRevenue += (r.totalPrice || 0);
+        }
+      } else if (r.status === 'no_sale') {
+        item.noSaleCount += 1;
+      } else if (r.status === 'closed') {
+        item.closedCount += 1;
+      } else if (r.status === 'callback') {
+        item.callbackCount += 1;
+      }
+    });
+
+    const list = Object.values(map).map((item) => {
+      const uniqueCafes = new Set(item.soldReports.map(r => r.cafeId));
+      item.uniqueCafesCount = uniqueCafes.size;
+      item.averageInvoice = item.soldCount > 0 ? Math.round(item.totalRevenue / item.soldCount) : 0;
+      item.conversionRate = item.totalVisits > 0 ? Math.round((item.soldCount / item.totalVisits) * 100) : 0;
+
+      const productQtyMap: Record<string, number> = {};
+      item.soldReports.forEach(r => {
+        const pName = r.productName || 'کارتن عمومی';
+        productQtyMap[pName] = (productQtyMap[pName] || 0) + (r.quantitySold || 0);
+      });
+      let topPName = '—';
+      let maxQ = 0;
+      Object.entries(productQtyMap).forEach(([pName, qty]) => {
+        if (qty > maxQ) {
+          maxQ = qty;
+          topPName = pName;
+        }
+      });
+      item.topProductName = topPName;
+
+      return item;
+    });
+
+    return list.sort((a, b) => b.key.localeCompare(a.key));
+  }, [reports]);
+
+  // Export the full monthly reports list as CSV for Excel
+  const handleExportMonthlySummaryCSV = () => {
+    if (monthlyReportsSummary.length === 0) return;
+
+    const headers = [
+      'ردیف',
+      'ماه و سال شمسی',
+      'تعداد فاکتورهای فروش موفق',
+      'تعداد کل کارتن‌های فروخته شده',
+      'مجموع مبلغ فروش (تومان)',
+      'میانگین مبلغ هر فاکتور (تومان)',
+      'تعداد کافه‌های خریدار',
+      'پرفروش‌ترین محصول ماه',
+      'تعداد کل ویزیت‌ها',
+      'نرخ موفقیت ویزیت‌ها (درصد)',
+      'فروش نقدی (تومان)',
+      'فروش نسیه و چک (تومان)'
+    ];
+
+    let totalVisitsSum = 0;
+    let totalSoldSum = 0;
+    let totalQtySum = 0;
+    let totalRevenueSum = 0;
+    let totalCashSum = 0;
+    let totalCreditSum = 0;
+
+    const rows = monthlyReportsSummary.map((m, idx) => {
+      totalVisitsSum += m.totalVisits;
+      totalSoldSum += m.soldCount;
+      totalQtySum += m.totalQuantity;
+      totalRevenueSum += m.totalRevenue;
+      totalCashSum += m.cashRevenue;
+      totalCreditSum += m.creditRevenue;
+
+      return [
+        idx + 1,
+        `"${m.monthName} ${m.year}"`,
+        m.soldCount,
+        m.totalQuantity,
+        m.totalRevenue,
+        m.averageInvoice,
+        m.uniqueCafesCount,
+        `"${m.topProductName.replace(/"/g, '""')}"`,
+        m.totalVisits,
+        `"${m.conversionRate}%"`,
+        m.cashRevenue,
+        m.creditRevenue
+      ];
+    });
+
+    // Summary row at the bottom
+    const avgInvoiceTotal = totalSoldSum > 0 ? Math.round(totalRevenueSum / totalSoldSum) : 0;
+    const avgConversionTotal = totalVisitsSum > 0 ? Math.round((totalSoldSum / totalVisitsSum) * 100) : 0;
+    const summaryRow = [
+      'مجموع کل',
+      `"کل دوره‌ها (${monthlyReportsSummary.length} ماه)"`,
+      totalSoldSum,
+      totalQtySum,
+      totalRevenueSum,
+      avgInvoiceTotal,
+      '—',
+      '—',
+      totalVisitsSum,
+      `"${avgConversionTotal}%"`,
+      totalCashSum,
+      totalCreditSum
+    ];
+
+    const csvContent = '\uFEFF' + [
+      headers.join(','),
+      ...rows.map(r => r.join(',')),
+      summaryRow.join(',')
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `لیست_گزارش‌های_ماهانه_فروش_دزفول_${Date.now()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Export single month detailed sales invoices as CSV for Excel
+  const handleExportSingleMonthCSV = (m: (typeof monthlyReportsSummary)[0]) => {
+    if (m.soldReports.length === 0) return;
+
+    const headers = [
+      'ردیف',
+      'تاریخ شمسی',
+      'ساعت',
+      'نام کافه',
+      'محصول فروخته شده',
+      'تعداد کارتن',
+      'مبلغ کل (تومان)',
+      'نوع پرداخت',
+      'وضعیت فاکتور',
+      'توضیحات'
+    ];
+
+    const rows = m.soldReports.map((r, idx) => {
+      const dateObj = new Date(r.timestamp);
+      const jalaliDate = getPersianDateFull(r.timestamp);
+      const timeStr = dateObj.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+      const paymentLabel = r.paymentType === 'credit' ? `نسیه (${r.creditDays || 0} روزه)` : 'نقدی';
+      return [
+        idx + 1,
+        jalaliDate,
+        timeStr,
+        `"${r.cafeName.replace(/"/g, '""')}"`,
+        `"${(r.productName || 'کارتن عمومی').replace(/"/g, '""')}"`,
+        r.quantitySold,
+        r.totalPrice,
+        `"${paymentLabel}"`,
+        `"موفق"`,
+        `"${(r.notes || '').replace(/"/g, '""')}"`
+      ];
+    });
+
+    const summaryRow = [
+      'مجموع',
+      `"${m.monthName} ${m.year}"`,
+      '—',
+      `"${m.uniqueCafesCount} کافه خریدار"`,
+      '—',
+      m.totalQuantity,
+      m.totalRevenue,
+      '—',
+      '—',
+      '—'
+    ];
+
+    const csvContent = '\uFEFF' + [
+      headers.join(','),
+      ...rows.map(r => r.join(',')),
+      summaryRow.join(',')
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `فاکتورهای_فروش_${m.monthName}_${m.year}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // Handle simple CSV export of the sales data
   const handleExportCSV = () => {
     if (processedSalesReports.length === 0) return;
 
     // Headers
-    const headers = ['تاریخ', 'ساعت', 'نام کافه', 'راننده / بازاریاب', 'محصول', 'تعداد فروخته شده', 'مبلغ کل (تومان)', 'توضیحات'];
+    const headers = ['ردیف', 'تاریخ شمسی', 'ساعت', 'نام کافه', 'محصول', 'تعداد فروخته شده', 'مبلغ کل (تومان)', 'توضیحات'];
     
     // Rows
-    const rows = processedSalesReports.map((r) => {
+    const rows = processedSalesReports.map((r, idx) => {
       const dateObj = new Date(r.timestamp);
       const jalaliDate = getPersianDateFull(r.timestamp);
       const timeStr = dateObj.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
       return [
+        idx + 1,
         jalaliDate,
         timeStr,
         `"${r.cafeName.replace(/"/g, '""')}"`,
-        `"${r.driverName.replace(/"/g, '""')}"`,
         `"${(r.productName || 'کارتن عمومی').replace(/"/g, '""')}"`,
         r.quantitySold,
         r.totalPrice,
@@ -283,6 +553,165 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
     
     const periodLabel = period === 'today' ? 'emroz' : period === '7days' ? '7rooze' : period === '30days' ? '30rooze' : 'hame-doreha';
     link.setAttribute('download', `gozaresh_foroosh_${periodLabel}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Lookup map for cafes by ID for contact and location info
+  const cafeLookup = useMemo(() => {
+    const map = new Map<string, Cafe>();
+    cafes.forEach(c => map.set(c.id, c));
+    return map;
+  }, [cafes]);
+
+  // Compute all unpaid credit reports with due date details
+  const allUnpaidCreditReports = useMemo(() => {
+    const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+
+    return reports
+      .filter((r) => r.status === 'sold' && r.paymentType === 'credit' && !r.isPaid)
+      .map((r) => {
+        const dueTimestamp = r.creditDueDate || (r.timestamp + (r.creditDays || 7) * oneDayMs);
+        const diffMs = dueTimestamp - now;
+        const daysRemaining = Math.ceil(diffMs / oneDayMs);
+        const cafeInfo = cafeLookup.get(r.cafeId);
+
+        return {
+          report: r,
+          dueTimestamp,
+          daysRemaining,
+          isOverdue: dueTimestamp < now,
+          dueJalali: getPersianDateFull(dueTimestamp),
+          saleJalali: getPersianDateFull(r.timestamp),
+          cafe: cafeInfo,
+          cafeName: r.cafeName || cafeInfo?.name || 'کافه',
+          phone: cafeInfo?.phone || '',
+          managerName: cafeInfo?.managerName || '',
+          address: cafeInfo?.address || ''
+        };
+      })
+      .sort((a, b) => a.dueTimestamp - b.dueTimestamp);
+  }, [reports, cafeLookup]);
+
+  // Filter for upcoming credit reports
+  const upcomingCreditReports = useMemo(() => {
+    if (creditDueFilter === '3days') {
+      return allUnpaidCreditReports.filter(item => item.daysRemaining >= 0 && item.daysRemaining <= 3);
+    } else if (creditDueFilter === 'overdue_and_3days') {
+      return allUnpaidCreditReports.filter(item => item.daysRemaining <= 3);
+    } else {
+      return allUnpaidCreditReports;
+    }
+  }, [allUnpaidCreditReports, creditDueFilter]);
+
+  // Count strictly in next 3 days
+  const strict3DaysCount = useMemo(() => {
+    return allUnpaidCreditReports.filter(item => item.daysRemaining >= 0 && item.daysRemaining <= 3).length;
+  }, [allUnpaidCreditReports]);
+
+  // Overdue count
+  const overdueCount = useMemo(() => {
+    return allUnpaidCreditReports.filter(item => item.daysRemaining < 0).length;
+  }, [allUnpaidCreditReports]);
+
+  // Total amount of dues in next 3 days
+  const upcoming3DaysTotalAmount = useMemo(() => {
+    return allUnpaidCreditReports
+      .filter(item => item.daysRemaining >= 0 && item.daysRemaining <= 3)
+      .reduce((sum, item) => sum + (item.report.totalPrice || 0), 0);
+  }, [allUnpaidCreditReports]);
+
+  // Handle settling a credit report payment directly
+  const handleSettlePayment = async (reportId: string, cafeName: string) => {
+    if (!onUpdateReport) return;
+    try {
+      setSettlingReportId(reportId);
+      await onUpdateReport(reportId, { isPaid: true });
+      setSettledSuccessToast(`فاکتور اعتباری «${cafeName}» با موفقیت تسویه شد.`);
+      setTimeout(() => setSettledSuccessToast(null), 4000);
+    } catch (err) {
+      console.error("Error settling report:", err);
+    } finally {
+      setSettlingReportId(null);
+    }
+  };
+
+  // Export upcoming credit dues as CSV for Excel
+  const handleExportUpcomingDuesCSV = () => {
+    if (upcomingCreditReports.length === 0) return;
+
+    const headers = [
+      'ردیف',
+      'نام کافه',
+      'مدیر کافه',
+      'شماره تماس',
+      'مبلغ فاکتور (تومان)',
+      'تعداد کارتن',
+      'نام محصول',
+      'تاریخ فروش شمسی',
+      'تاریخ سررسید شمسی',
+      'وضعیت موعد پرداخت',
+      'آدرس کافه',
+      'یادداشت'
+    ];
+
+    const rows = upcomingCreditReports.map((item, idx) => {
+      let statusStr = '';
+      if (item.daysRemaining < 0) {
+        statusStr = `سررسید گذشته (${Math.abs(item.daysRemaining)} روز تأخیر)`;
+      } else if (item.daysRemaining === 0) {
+        statusStr = 'سررسید امروز';
+      } else {
+        statusStr = `${item.daysRemaining} روز مانده`;
+      }
+
+      return [
+        idx + 1,
+        `"${item.cafeName.replace(/"/g, '""')}"`,
+        `"${(item.managerName || 'نامشخص').replace(/"/g, '""')}"`,
+        `"${item.phone || '—'}"`,
+        item.report.totalPrice,
+        item.report.quantitySold,
+        `"${(item.report.productName || 'کارتن عمومی').replace(/"/g, '""')}"`,
+        item.saleJalali,
+        item.dueJalali,
+        `"${statusStr}"`,
+        `"${(item.address || '').replace(/"/g, '""')}"`,
+        `"${(item.report.notes || '').replace(/"/g, '""')}"`
+      ];
+    });
+
+    const totalSum = upcomingCreditReports.reduce((sum, i) => sum + i.report.totalPrice, 0);
+    const totalQty = upcomingCreditReports.reduce((sum, i) => sum + i.report.quantitySold, 0);
+    const summaryRow = [
+      'مجموع',
+      `"${upcomingCreditReports.length} کافه"`,
+      '—',
+      '—',
+      totalSum,
+      totalQty,
+      '—',
+      '—',
+      '—',
+      '—',
+      '—',
+      '—'
+    ];
+
+    const csvContent = '\uFEFF' + [
+      headers.join(','),
+      ...rows.map(r => r.join(',')),
+      summaryRow.join(',')
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `موعد_پرداخت‌های_نزدیک_کافه‌ها.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -313,31 +742,114 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
           </p>
         </div>
 
-        {/* Period Selector Tabs */}
-        <div className="flex bg-slate-100 p-1 rounded-xl self-start md:self-auto shrink-0">
-          {[
-            { id: 'today', label: 'امروز' },
-            { id: '7days', label: '۷ روز اخیر' },
-            { id: '30days', label: '۳۰ روز اخیر' },
-            { id: 'all', label: 'همه گزارش‌ها' }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setPeriod(tab.id as TimePeriod)}
-              className={`px-3 py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
-                period === tab.id
-                  ? 'bg-white text-slate-800 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+        {/* Header Actions: Period Tabs & Monthly CSV Button */}
+        <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto shrink-0">
+          {/* Main Monthly Reports CSV Download Button */}
+          <button
+            type="button"
+            onClick={handleExportMonthlySummaryCSV}
+            disabled={monthlyReportsSummary.length === 0}
+            className={`px-3 py-1.5 text-xs font-black rounded-xl flex items-center gap-2 transition-all shadow-sm ${
+              monthlyReportsSummary.length > 0
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer hover:shadow-md shadow-emerald-600/20 active:scale-[0.98]'
+                : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+            }`}
+            title="دریافت فایل اکسل لیست گزارش‌های ماهانه (CSV)"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+            <span>دریافت گزارش‌های ماهانه (CSV)</span>
+          </button>
+
+          {/* Period Selector Tabs */}
+          <div className="flex bg-slate-100 p-1 rounded-xl">
+            {[
+              { id: 'today', label: 'امروز' },
+              { id: '7days', label: '۷ روز اخیر' },
+              { id: '30days', label: '۳۰ روز اخیر' },
+              { id: 'all', label: 'همه گزارش‌ها' }
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setPeriod(tab.id as TimePeriod)}
+                className={`px-3 py-1.5 text-xs font-black rounded-lg transition-all cursor-pointer ${
+                  period === tab.id
+                    ? 'bg-white text-slate-800 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      {/* Sub-Section Navigation Tabs (Eliminates excessive scrolling on Mobile) */}
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 rounded-2xl overflow-x-auto no-scrollbar border border-slate-200/80 shrink-0" id="sales_section_segmented_tabs">
+        {[
+          {
+            id: 'charts',
+            label: 'شاخص‌ها و نمودارها',
+            icon: BarChart3,
+            iconColor: 'text-orange-600',
+            badge: null
+          },
+          {
+            id: 'dues',
+            label: 'موعد پرداخت‌ها',
+            icon: Clock,
+            iconColor: 'text-amber-600',
+            badge: strict3DaysCount > 0 ? toPersianDigits(strict3DaysCount) : null,
+            badgeClass: 'bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse'
+          },
+          {
+            id: 'monthly',
+            label: 'گزارش‌های ماهانه',
+            icon: FileSpreadsheet,
+            iconColor: 'text-emerald-600',
+            badge: monthlyReportsSummary.length > 0 ? `${toPersianDigits(monthlyReportsSummary.length)} ماه` : null,
+            badgeClass: 'bg-emerald-100 text-emerald-800 text-[10px] font-black px-1.5 py-0.5 rounded-full'
+          },
+          {
+            id: 'invoices',
+            label: 'ریز فاکتورها و مشتریان',
+            icon: CalendarDays,
+            iconColor: 'text-blue-600',
+            badge: processedSalesReports.length > 0 ? toPersianDigits(processedSalesReports.length) : null,
+            badgeClass: 'bg-slate-200 text-slate-700 text-[10px] font-black px-1.5 py-0.5 rounded-full'
+          },
+          {
+            id: 'all',
+            label: 'نمایش یکجا',
+            icon: Layers,
+            iconColor: 'text-purple-600',
+            badge: null
+          }
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveSection(tab.id as SalesSection)}
+            className={`px-3 py-2 text-xs font-black rounded-xl flex items-center gap-1.5 shrink-0 transition-all cursor-pointer ${
+              activeSection === tab.id
+                ? 'bg-white text-slate-900 shadow-sm border border-slate-200/60'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+            }`}
+          >
+            <tab.icon className={`w-3.5 h-3.5 ${tab.iconColor}`} />
+            <span>{tab.label}</span>
+            {tab.badge && (
+              <span className={`mr-1 ${tab.badgeClass}`}>
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {/* 4 Bento Metrics Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" id="sales_metrics_bento">
+      {(activeSection === 'charts' || activeSection === 'all') && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn" id="sales_metrics_bento">
         
         {/* Card 1: Total Revenue */}
         <div className="bg-gradient-to-br from-emerald-500/5 to-emerald-500/10 border border-emerald-100 p-4 rounded-2xl shadow-sm flex flex-col justify-between hover:scale-[1.01] transition-all duration-300 overflow-hidden min-w-0">
@@ -420,9 +932,275 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
         </div>
 
       </div>
+      )}
+
+      {/* Upcoming Credit Due Dates Section (Next 3 Days) */}
+      {(activeSection === 'dues' || activeSection === 'all') && (
+      <div className="bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-white border border-amber-200/90 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-sm animate-fadeIn" id="upcoming_credit_dues_section">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-amber-200/60">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1 border border-amber-200">
+                <Clock className="w-3 h-3 text-amber-700" />
+                مدیریت مطالبات اعتباری
+              </span>
+              {strict3DaysCount > 0 && (
+                <span className="bg-rose-100 text-rose-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-rose-200 animate-pulse">
+                  {toPersianDigits(strict3DaysCount)} موعد سررسید در ۳ روز آینده
+                </span>
+              )}
+              {overdueCount > 0 && (
+                <span className="bg-red-100 text-red-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-200">
+                  {toPersianDigits(overdueCount)} فاکتور سررسید گذشته
+                </span>
+              )}
+            </div>
+            <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 mt-1">
+              <Clock className="w-4 h-4 text-orange-600" />
+              <span>موعد پرداخت‌های نزدیک (۳ روز آینده)</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+              فهرست کافه‌هایی که خرید اعتباری/نسیه داشته‌اند و موعد پرداخت و سررسید تسویه آن‌ها در ۳ روز آینده (یا امروز) فرا می‌رسد.
+            </p>
+          </div>
+
+          {/* Right Side Header Controls */}
+          <div className="flex flex-wrap items-center gap-2 shrink-0 self-start md:self-auto">
+            {/* CSV Export for Upcoming Dues */}
+            <button
+              type="button"
+              onClick={handleExportUpcomingDuesCSV}
+              disabled={upcomingCreditReports.length === 0}
+              className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm ${
+                upcomingCreditReports.length > 0
+                  ? 'bg-amber-600 hover:bg-amber-700 text-white cursor-pointer hover:shadow shadow-amber-600/20 active:scale-[0.98]'
+                  : 'bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200'
+              }`}
+              title="دانلود فایل اکسل موعد پرداخت‌های نزدیک"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>خروجی اکسل سررسیدها</span>
+            </button>
+
+            {/* Filter Tabs */}
+            <div className="flex bg-slate-100 p-0.5 rounded-xl text-[11px] font-bold">
+              <button
+                type="button"
+                onClick={() => setCreditDueFilter('3days')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  creditDueFilter === '3days'
+                    ? 'bg-white text-slate-800 shadow-xs font-black'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                ۳ روز آینده ({toPersianDigits(strict3DaysCount)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreditDueFilter('overdue_and_3days')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  creditDueFilter === 'overdue_and_3days'
+                    ? 'bg-white text-slate-800 shadow-xs font-black'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                با سررسیدهای گذشته ({toPersianDigits(strict3DaysCount + overdueCount)})
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreditDueFilter('all_unpaid')}
+                className={`px-2.5 py-1 rounded-lg transition-all cursor-pointer ${
+                  creditDueFilter === 'all_unpaid'
+                    ? 'bg-white text-slate-800 shadow-xs font-black'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                همه ({toPersianDigits(allUnpaidCreditReports.length)})
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Toast notification for successful settlement */}
+        {settledSuccessToast && (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{settledSuccessToast}</span>
+          </div>
+        )}
+
+        {/* Mini KPI bar for dues */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-amber-50/50 p-2.5 rounded-xl border border-amber-100 text-xs">
+          <div className="flex flex-col">
+            <span className="text-[10px] text-slate-400 font-bold">مجموع مطالبات در ۳ روز آینده</span>
+            <span className="font-black text-amber-700 text-sm font-sans mt-0.5">
+              {toPersianDigits(formatPrice(upcoming3DaysTotalAmount))} <span className="text-[10px] text-slate-500 font-normal">تومان</span>
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] text-slate-400 font-bold">تعداد کافه‌های در نوبت وصول</span>
+            <span className="font-black text-slate-800 text-sm font-sans mt-0.5">
+              {toPersianDigits(strict3DaysCount)} <span className="text-[10px] text-slate-500 font-normal">کافه</span>
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] text-slate-400 font-bold">کل مطالبات باز اعتباری</span>
+            <span className="font-black text-slate-800 text-sm font-sans mt-0.5">
+              {toPersianDigits(allUnpaidCreditReports.length)} <span className="text-[10px] text-slate-500 font-normal">فاکتور</span>
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-[10px] text-slate-400 font-bold">وضعیت سررسیدها</span>
+            <span className={`font-black text-xs mt-0.5 flex items-center gap-1 ${overdueCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+              {overdueCount > 0 ? (
+                <>
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{toPersianDigits(overdueCount)} مورد تأخیر گذشته</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                  <span>بدون تأخیر معوق</span>
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Content Cards / Empty State */}
+        {upcomingCreditReports.length === 0 ? (
+          <div className="text-center py-7 px-4 bg-white/80 rounded-xl border border-dashed border-amber-200 flex flex-col items-center justify-center gap-2">
+            <CheckCircle2 className="w-7 h-7 text-emerald-500" />
+            <span className="text-xs font-black text-slate-700">هیچ فاکتور اعتباری با موعد پرداخت در ۳ روز آینده یافت نشد.</span>
+            <span className="text-[11px] text-slate-400 font-medium">تمامی سفارشات اعتباری تسویه شده‌اند یا موعد سررسید آن‌ها بیش از ۳ روز فاصله دارد.</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            {upcomingCreditReports.map((item) => {
+              const r = item.report;
+              return (
+                <div
+                  key={r.id}
+                  className={`bg-white rounded-xl border p-3.5 flex flex-col justify-between gap-3 shadow-xs hover:shadow-sm transition-all ${
+                    item.daysRemaining < 0
+                      ? 'border-rose-200 bg-rose-50/20'
+                      : item.daysRemaining === 0
+                      ? 'border-orange-300 bg-orange-50/20'
+                      : 'border-slate-200/90'
+                  }`}
+                >
+                  {/* Card Header */}
+                  <div className="flex items-start justify-between gap-2 min-w-0 pb-2 border-b border-slate-100">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Coffee className="w-4 h-4 text-orange-600 shrink-0" />
+                        <h4 className="text-xs font-black text-slate-900 truncate" title={item.cafeName}>
+                          {item.cafeName}
+                        </h4>
+                      </div>
+                      {item.managerName && (
+                        <div className="flex items-center gap-1 text-[10px] text-slate-400 font-medium mt-0.5 truncate">
+                          <User className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">مدیریت: {item.managerName}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Urgency Badge */}
+                    <div className="shrink-0">
+                      {item.daysRemaining < 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black bg-rose-100 text-rose-800 border border-rose-300 px-2 py-0.5 rounded-full">
+                          <AlertTriangle className="w-3 h-3 text-rose-600" />
+                          <span>{toPersianDigits(Math.abs(item.daysRemaining))} روز تأخیر</span>
+                        </span>
+                      ) : item.daysRemaining === 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black bg-orange-100 text-orange-900 border border-orange-300 px-2 py-0.5 rounded-full animate-pulse">
+                          <Clock className="w-3 h-3 text-orange-600" />
+                          <span>سررسید امروز!</span>
+                        </span>
+                      ) : item.daysRemaining === 1 ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-full">
+                          <Clock className="w-3 h-3 text-amber-700" />
+                          <span>فردا (۱ روز مانده)</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black bg-blue-50 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-full">
+                          <Clock className="w-3 h-3 text-blue-600" />
+                          <span>{toPersianDigits(item.daysRemaining)} روز مانده</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Card Financial Details */}
+                  <div className="space-y-1.5 text-xs min-w-0">
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="text-[11px] text-slate-500 font-bold">مبلغ بدهی / فاکتور:</span>
+                      <span className="text-sm font-black text-emerald-600 font-sans">
+                        {toPersianDigits(formatPrice(r.totalPrice))} <span className="text-[10px] text-slate-400 font-normal">تومان</span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-slate-600 gap-1">
+                      <span className="text-slate-400 font-medium">سفارش:</span>
+                      <span className="font-extrabold truncate text-slate-700">
+                        {toPersianDigits(r.quantitySold)} کارتن {r.productName || 'هولدر'}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-medium gap-1 pt-1 border-t border-slate-50">
+                      <span>تاریخ ثبت: {toPersianDigits(item.saleJalali)}</span>
+                      <span className="font-bold text-slate-600">موعد: {toPersianDigits(item.dueJalali)}</span>
+                    </div>
+
+                    {item.address && (
+                      <div className="flex items-center gap-1 text-[10px] text-slate-400 truncate pt-0.5">
+                        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span className="truncate" title={item.address}>{item.address}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Card Actions: Call and Settle */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                    {item.phone ? (
+                      <a
+                        href={`tel:${item.phone}`}
+                        className="flex-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200/80 rounded-lg py-1.5 px-2 text-[10px] font-black flex items-center justify-center gap-1 transition-all"
+                        title={`تماس تلفنی با کافه: ${item.phone}`}
+                      >
+                        <Phone className="w-3 h-3 text-amber-700" />
+                        <span>تماس ({toPersianDigits(item.phone)})</span>
+                      </a>
+                    ) : (
+                      <div className="flex-1 text-center text-[10px] text-slate-400 py-1.5 font-bold">بدون شماره تماس</div>
+                    )}
+
+                    {onUpdateReport && (
+                      <button
+                        type="button"
+                        onClick={() => handleSettlePayment(r.id, item.cafeName)}
+                        disabled={settlingReportId === r.id}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg py-1.5 px-2.5 text-[10px] font-black flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs shrink-0"
+                        title="ثبت تسویه و وصول بدهی فاکتور"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>{settlingReportId === r.id ? 'در حال ثبت...' : 'تسویه شد'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      )}
 
       {/* Visual Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5" id="sales_visual_charts">
+      {(activeSection === 'charts' || activeSection === 'all') && (
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-fadeIn" id="sales_visual_charts">
         
         {/* Sales Trend Chart (8 Cols) */}
         <div className="lg:col-span-8 bg-slate-50 border border-slate-150 p-4 rounded-2xl flex flex-col gap-4">
@@ -540,9 +1318,152 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
         </div>
 
       </div>
+      )}
+
+      {/* Monthly Reports Summary Table & Excel CSV Section */}
+      {(activeSection === 'monthly' || activeSection === 'all') && (
+      <div className="bg-gradient-to-br from-slate-50 to-emerald-50/20 border border-slate-200/90 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 shadow-sm animate-fadeIn" id="monthly_sales_reports_section">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200/70">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                <FileSpreadsheet className="w-3 h-3 text-emerald-700" />
+                تحلیل و کارنامه ماهانه
+              </span>
+              <span className="text-[10px] text-slate-400 font-bold">فرمت استاندارد Microsoft Excel / CSV</span>
+            </div>
+            <h3 className="text-sm font-black text-slate-800 flex items-center gap-2 mt-1">
+              <CalendarDays className="w-4 h-4 text-emerald-600" />
+              <span>لیست گزارش‌های ماهانه فروش (بررسی و دریافت در اکسل)</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+              تفکیک عملکرد و درآمد به تفکیک ماه‌های شمسی؛ مدیر می‌تواند لیست تجمیعی کلیه ماه‌ها یا فاکتورهای هر ماه را به صورت فایل CSV جهت بررسی‌های حسابداری و مدیریتی در مایکروسافت اکسل دریافت کند.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0 self-start md:self-auto">
+            <button
+              type="button"
+              onClick={handleExportMonthlySummaryCSV}
+              disabled={monthlyReportsSummary.length === 0}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-2 transition-all shadow-sm ${
+                monthlyReportsSummary.length > 0
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer hover:shadow-md shadow-emerald-600/25 active:scale-[0.98]'
+                  : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              }`}
+              title="دریافت تجمیعی تمامی ماه‌ها در قالب فایل اکسل"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>دریافت فایل اکسل گزارش‌های ماهانه (CSV)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Monthly Table / Empty State */}
+        {monthlyReportsSummary.length === 0 ? (
+          <div className="text-center py-8 px-4 text-slate-400 text-xs font-bold bg-white/80 rounded-xl border border-dashed border-slate-200 flex flex-col items-center justify-center gap-1.5">
+            <Calendar className="w-6 h-6 text-slate-300" />
+            <span>هنوز گزارشی در سیستم ثبت نشده است.</span>
+            <span className="text-[10px] text-slate-400 font-normal">پس از ثبت ویزیت‌ها و فاکتورها، گزارش‌های ماهانه به صورت خودکار در این جدول تفکیک و قابل دریافت در اکسل خواهند شد.</span>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200/80 bg-white shadow-xs">
+            <table className="w-full text-right text-xs">
+              <thead>
+                <tr className="bg-slate-100/90 text-slate-700 font-black border-b border-slate-200 text-[11px]">
+                  <th className="py-3 px-3 w-12 text-center">ردیف</th>
+                  <th className="py-3 px-3">ماه و سال</th>
+                  <th className="py-3 px-3">سفارشات موفق</th>
+                  <th className="py-3 px-3">تعداد کارتن</th>
+                  <th className="py-3 px-3">مجموع فروش</th>
+                  <th className="py-3 px-3">میانگین فاکتور</th>
+                  <th className="py-3 px-3">کافه‌های خریدار</th>
+                  <th className="py-3 px-3">پرفروش‌ترین کالا</th>
+                  <th className="py-3 px-3 text-center">خروجی اکسل</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-[11px] font-bold text-slate-700">
+                {monthlyReportsSummary.map((m, idx) => (
+                  <tr key={m.key} className="hover:bg-emerald-50/40 transition-colors">
+                    <td className="py-3 px-3 font-sans text-slate-400 font-medium text-center">{toPersianDigits(idx + 1)}</td>
+                    <td className="py-3 px-3 font-black text-slate-900">
+                      <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-800 px-2 py-1 rounded-lg">
+                        <Calendar className="w-3.5 h-3.5 text-orange-600" />
+                        {m.label}
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 font-sans text-slate-800">
+                      {toPersianDigits(m.soldCount)} <span className="text-[10px] text-slate-400 font-normal">فاکتور</span>
+                    </td>
+                    <td className="py-3 px-3 font-sans text-orange-600 font-black">
+                      {toPersianDigits(m.totalQuantity)} <span className="text-[10px] text-slate-400 font-normal">کارتن</span>
+                    </td>
+                    <td className="py-3 px-3 font-sans font-black text-emerald-600">
+                      {toPersianDigits(formatPrice(m.totalRevenue))} <span className="text-[10px] text-slate-400 font-normal">تومان</span>
+                    </td>
+                    <td className="py-3 px-3 font-sans text-slate-600">
+                      {toPersianDigits(formatPrice(m.averageInvoice))} <span className="text-[10px] text-slate-400 font-normal">تومان</span>
+                    </td>
+                    <td className="py-3 px-3 font-sans text-slate-600">
+                      {toPersianDigits(m.uniqueCafesCount)} <span className="text-[10px] text-slate-400 font-normal">کافه</span>
+                    </td>
+                    <td className="py-3 px-3 text-slate-800 truncate max-w-[140px]" title={m.topProductName}>
+                      {m.topProductName}
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <button
+                        type="button"
+                        onClick={() => handleExportSingleMonthCSV(m)}
+                        disabled={m.soldReports.length === 0}
+                        className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200/80 px-2.5 py-1.5 rounded-lg cursor-pointer transition-all"
+                        title={`دانلود فایل اکسل فاکتورهای ${m.label}`}
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>فاکتورها (CSV)</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              {monthlyReportsSummary.length > 1 && (
+                <tfoot>
+                  <tr className="bg-slate-50 font-black text-slate-800 text-[11px] border-t-2 border-slate-200">
+                    <td className="py-3 px-3 text-center text-slate-400">—</td>
+                    <td className="py-3 px-3 font-black text-slate-900">مجموع کل ({toPersianDigits(monthlyReportsSummary.length)} ماه)</td>
+                    <td className="py-3 px-3 font-sans">
+                      {toPersianDigits(monthlyReportsSummary.reduce((sum, m) => sum + m.soldCount, 0))} <span className="text-[10px] text-slate-400 font-normal">فاکتور</span>
+                    </td>
+                    <td className="py-3 px-3 font-sans text-orange-600">
+                      {toPersianDigits(monthlyReportsSummary.reduce((sum, m) => sum + m.totalQuantity, 0))} <span className="text-[10px] text-slate-400 font-normal">کارتن</span>
+                    </td>
+                    <td className="py-3 px-3 font-sans font-black text-emerald-600">
+                      {toPersianDigits(formatPrice(monthlyReportsSummary.reduce((sum, m) => sum + m.totalRevenue, 0)))} <span className="text-[10px] text-slate-400 font-normal">تومان</span>
+                    </td>
+                    <td className="py-3 px-3 font-sans text-slate-500">—</td>
+                    <td className="py-3 px-3 font-sans text-slate-500">—</td>
+                    <td className="py-3 px-3 text-slate-500">—</td>
+                    <td className="py-3 px-3 text-center">
+                      <button
+                        type="button"
+                        onClick={handleExportMonthlySummaryCSV}
+                        className="inline-flex items-center gap-1 text-[10px] font-extrabold text-white bg-emerald-600 hover:bg-emerald-700 px-2.5 py-1.5 rounded-lg cursor-pointer transition-all shadow-xs"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>خروجی کامل</span>
+                      </button>
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        )}
+      </div>
+      )}
 
       {/* Tables Row: Top Cafes & Detailed Logs */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5" id="sales_tables_sections">
+      {(activeSection === 'invoices' || activeSection === 'all') && (
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 animate-fadeIn" id="sales_tables_sections">
         
         {/* Top 5 Cafes (5 Cols) */}
         <div className="lg:col-span-5 bg-white border border-slate-200/80 rounded-2xl shadow-sm p-4 flex flex-col gap-3 overflow-hidden min-w-0">
@@ -639,51 +1560,76 @@ export default function SalesReport({ reports, cafes, products }: SalesReportPro
             </div>
           </div>
 
-          {/* Table List Container */}
-          <div className="flex-1 overflow-y-auto max-h-[220px] divide-y divide-slate-100 pr-1">
+          {/* Table List Container - Compact Table Layout */}
+          <div className="flex-1 overflow-x-auto overflow-y-auto max-h-[300px] rounded-xl border border-slate-200/80 bg-white">
             {processedSalesReports.length === 0 ? (
               <div className="text-center py-10 text-slate-400 text-xs font-bold">
                 فاکتور فروشی با فیلترهای بالا یافت نشد.
               </div>
             ) : (
-              processedSalesReports.map((report) => {
-                const timeStr = new Date(report.timestamp).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-                const fullDate = getPersianDateFull(report.timestamp);
+              <table className="w-full text-right text-xs">
+                <thead>
+                  <tr className="bg-slate-100/90 text-slate-700 font-black border-b border-slate-200 text-[11px] sticky top-0 z-10">
+                    <th className="py-2.5 px-2.5 w-8 text-center">#</th>
+                    <th className="py-2.5 px-2.5">کافه و زمان</th>
+                    <th className="py-2.5 px-2.5">محصول و تعداد</th>
+                    <th className="py-2.5 px-2.5">مبلغ کل فاکتور</th>
+                    <th className="py-2.5 px-2.5">توضیحات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-[11px] font-bold text-slate-700">
+                  {processedSalesReports.map((report, idx) => {
+                    const timeStr = new Date(report.timestamp).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+                    const fullDate = getPersianDateFull(report.timestamp);
 
-                return (
-                  <div key={report.id} className="py-2.5 flex flex-col gap-1.5 hover:bg-slate-50/50 rounded px-1.5 transition-all min-w-0">
-                    <div className="flex items-center justify-between gap-2 min-w-0">
-                      <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                        <span className="text-xs font-black text-slate-800 truncate" title={report.cafeName}>{report.cafeName}</span>
-                        <span className="text-[9px] text-slate-400 font-sans font-medium shrink-0">({fullDate} - {timeStr})</span>
-                      </div>
-                      <span className="text-[11px] font-black text-emerald-600 font-sans shrink-0">
-                        {toPersianDigits(formatPrice(report.totalPrice))} <span className="text-[9px] text-slate-400 font-medium">تومان</span>
-                      </span>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-500 min-w-0">
-                      <div className="flex items-center gap-2 font-bold min-w-0 flex-1 truncate">
-                        <span className="truncate">محصول: <span className="text-slate-700 font-extrabold">{report.productName || 'کارتن عمومی'}</span></span>
-                        <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0"></span>
-                        <span className="shrink-0">تعداد: <span className="text-slate-700 font-extrabold">{toPersianDigits(report.quantitySold)} عدد</span></span>
-                      </div>
-                      <span className="text-[9px] text-slate-400 shrink-0">ثبت توسط: <span className="text-slate-600 font-extrabold">راننده پخش</span></span>
-                    </div>
-
-                    {report.notes && (
-                      <p className="text-[10px] text-slate-400 italic bg-slate-50/30 p-1.5 rounded border border-slate-100/50 leading-relaxed font-medium">
-                        {report.notes}
-                      </p>
-                    )}
-                  </div>
-                );
-              })
+                    return (
+                      <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2 px-2.5 text-center font-sans text-slate-400 font-medium">
+                          {toPersianDigits(idx + 1)}
+                        </td>
+                        <td className="py-2 px-2.5">
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-extrabold text-slate-900 text-xs truncate max-w-[130px]" title={report.cafeName}>
+                              {report.cafeName}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-sans font-medium whitespace-nowrap">
+                              {timeStr} <span className="text-slate-300">|</span> {fullDate}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-2 px-2.5 whitespace-nowrap">
+                          <span className="text-slate-700">
+                            <span className="font-black text-orange-600 font-sans">{toPersianDigits(report.quantitySold)}</span> کارتن{' '}
+                            <span className="text-[10px] text-slate-500 font-medium truncate max-w-[100px] inline-block align-bottom">
+                              ({report.productName || 'هولدر'})
+                            </span>
+                          </span>
+                        </td>
+                        <td className="py-2 px-2.5 whitespace-nowrap">
+                          <span className="font-black text-emerald-600 font-sans">
+                            {toPersianDigits(formatPrice(report.totalPrice))} <span className="text-[9px] text-slate-400 font-normal">تومان</span>
+                          </span>
+                        </td>
+                        <td className="py-2 px-2.5 max-w-[140px]">
+                          {report.notes ? (
+                            <span className="text-[10px] text-slate-500 font-medium truncate block" title={report.notes}>
+                              {report.notes}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             )}
           </div>
         </div>
 
       </div>
+      )}
 
     </div>
   );

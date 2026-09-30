@@ -40,7 +40,8 @@ import {
   Menu,
   X,
   LayoutDashboard,
-  MessageSquareCode
+  MessageSquareCode,
+  Table
 } from 'lucide-react';
 
 interface AdminPanelProps {
@@ -151,6 +152,7 @@ export default function AdminPanel({
 
   // Reports tab date filter state
   const [reportsDateFilter, setReportsDateFilter] = useState<string>(activeDate);
+  const [reportsViewMode, setReportsViewMode] = useState<'compact' | 'expanded'>('compact');
   const [confirmingDeletionId, setConfirmingDeletionId] = useState<string | null>(null);
 
   // Sync reportsDateFilter if global activeDate changes
@@ -1310,7 +1312,7 @@ export default function AdminPanel({
         )}
 
         {activeTab === 'sales' && (
-          <SalesReport reports={reports} cafes={cafes} products={products} />
+          <SalesReport reports={reports} cafes={cafes} products={products} onUpdateReport={onUpdateReport} />
         )}
 
         {activeTab === 'products' && (
@@ -1614,167 +1616,334 @@ export default function AdminPanel({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-500 whitespace-nowrap">انتخاب روز:</span>
-                  <select
-                    value={reportsDateFilter}
-                    onChange={(e) => setReportsDateFilter(e.target.value)}
-                    className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-orange-500 text-slate-700 min-w-[160px]"
-                    id="reports_date_filter_select"
-                  >
-                    <option value="all">همه روزها (کل تاریخچه)</option>
-                    {uniqueReportDates.map(dateStr => (
-                      <option key={dateStr} value={dateStr}>
-                        {dateStr === activeDate ? `برنامه امروز (${toPersianDigits(getPersianDateString(dateStr))})` : toPersianDigits(getPersianDateString(dateStr))}
-                      </option>
-                    ))}
-                  </select>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* View Mode Toggle: Compact Table vs Expanded Cards */}
+                  <div className="flex bg-slate-200/70 p-0.5 rounded-xl text-[11px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setReportsViewMode('compact')}
+                      className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all cursor-pointer ${
+                        reportsViewMode === 'compact'
+                          ? 'bg-white text-slate-800 shadow-xs font-black'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                      title="نمای جدولی فشرده (مناسب موبایل و بدون اسکرول زیاد)"
+                    >
+                      <Table className="w-3.5 h-3.5" />
+                      <span>جدول فشرده</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReportsViewMode('expanded')}
+                      className={`px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all cursor-pointer ${
+                        reportsViewMode === 'expanded'
+                          ? 'bg-white text-slate-800 shadow-xs font-black'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                      title="نمای کارتی مشروح"
+                    >
+                      <LayoutDashboard className="w-3.5 h-3.5" />
+                      <span>کارت‌ها</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold text-slate-500 whitespace-nowrap">انتخاب روز:</span>
+                    <select
+                      value={reportsDateFilter}
+                      onChange={(e) => setReportsDateFilter(e.target.value)}
+                      className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-orange-500 text-slate-700"
+                      id="reports_date_filter_select"
+                    >
+                      <option value="all">همه روزها (کل تاریخچه)</option>
+                      {uniqueReportDates.map(dateStr => (
+                        <option key={dateStr} value={dateStr}>
+                          {dateStr === activeDate ? `برنامه امروز (${toPersianDigits(getPersianDateString(dateStr))})` : toPersianDigits(getPersianDateString(dateStr))}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
               {/* Reports List */}
-              <div className="divide-y divide-slate-100 overflow-y-auto font-medium">
-                {(() => {
-                  const filteredReports = reports.filter(r => {
-                    if (reportsDateFilter === 'all') return true;
-                    const rDate = new Date(r.timestamp);
-                    const rDateStr = `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}`;
-                    return rDateStr === reportsDateFilter;
-                  });
+              {(() => {
+                const filteredReports = reports.filter(r => {
+                  if (reportsDateFilter === 'all') return true;
+                  const rDate = new Date(r.timestamp);
+                  const rDateStr = `${rDate.getFullYear()}-${String(rDate.getMonth() + 1).padStart(2, '0')}-${String(rDate.getDate()).padStart(2, '0')}`;
+                  return rDateStr === reportsDateFilter;
+                });
 
-                  if (filteredReports.length === 0) {
-                    return (
-                      <div className="p-12 text-center text-slate-400 text-xs font-bold">
-                        {reportsDateFilter === 'all' 
-                          ? 'هیچ گزارش فروشی در سیستم ثبت نشده است.'
-                          : `هیچ گزارش فروشی برای تاریخ انتخابی (${toPersianDigits(getPersianDateString(reportsDateFilter))}) ثبت نشده است.`}
-                      </div>
-                    );
-                  }
+                if (filteredReports.length === 0) {
+                  return (
+                    <div className="p-12 text-center text-slate-400 text-xs font-bold">
+                      {reportsDateFilter === 'all' 
+                        ? 'هیچ گزارش فروشی در سیستم ثبت نشده است.'
+                        : `هیچ گزارش فروشی برای تاریخ انتخابی (${toPersianDigits(getPersianDateString(reportsDateFilter))}) ثبت نشده است.`}
+                    </div>
+                  );
+                }
 
-                  return filteredReports
-                    .sort((a, b) => b.timestamp - a.timestamp)
-                    .map((report) => {
-                      let statusBadge = null;
-                      if (report.status === 'sold') {
-                        statusBadge = (
-                          <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <span>فروش {report.productName ? `(${report.productName})` : ''}:</span>
-                            <span>{toPersianDigits(report.quantitySold)} عدد</span>
-                          </span>
-                        );
-                      } else if (report.status === 'no_sale') {
-                        statusBadge = <span className="bg-red-100 text-red-800 border border-red-200 text-[10px] font-bold px-2 py-0.5 rounded-full">عدم خرید</span>;
-                      } else if (report.status === 'callback') {
-                        statusBadge = <span className="bg-orange-100 text-orange-800 border border-orange-200 text-[10px] font-bold px-2 py-0.5 rounded-full">پیگیری مجدد</span>;
-                      } else if (report.status === 'closed') {
-                        statusBadge = <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold px-2 py-0.5 rounded-full">بسته بود</span>;
-                      }
+                return reportsViewMode === 'compact' ? (
+                  /* Compact Table View - Mobile Optimized & Minimal Scrolling */
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-right text-xs">
+                      <thead>
+                        <tr className="bg-slate-100/90 text-slate-700 font-black border-b border-slate-200 text-[11px]">
+                          <th className="py-2.5 px-3 w-10 text-center">#</th>
+                          <th className="py-2.5 px-3">کافه و زمان</th>
+                          <th className="py-2.5 px-3">وضعیت و کالا</th>
+                          <th className="py-2.5 px-3">مبلغ و تسویه</th>
+                          <th className="py-2.5 px-3">توضیحات</th>
+                          <th className="py-2.5 px-3 text-center w-14">حذف</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-[11px] font-bold text-slate-700">
+                        {filteredReports
+                          .sort((a, b) => b.timestamp - a.timestamp)
+                          .map((report, idx) => {
+                            const rDateTimeObj = new Date(report.timestamp);
+                            const rTime = rDateTimeObj.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+                            const rDateStr = `${rDateTimeObj.getFullYear()}-${String(rDateTimeObj.getMonth() + 1).padStart(2, '0')}-${String(rDateTimeObj.getDate()).padStart(2, '0')}`;
 
-                      const rDateTimeObj = new Date(report.timestamp);
-                      const rTime = rDateTimeObj.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-                      const rDateStr = `${rDateTimeObj.getFullYear()}-${String(rDateTimeObj.getMonth() + 1).padStart(2, '0')}-${String(rDateTimeObj.getDate()).padStart(2, '0')}`;
-
-                      return (
-                        <div key={report.id} className="p-4 hover:bg-slate-50/50 transition-all flex flex-col gap-2">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-extrabold text-slate-800 text-xs">{report.cafeName}</span>
-                              <span className="text-[10px] text-slate-400 font-sans font-medium">
-                                ({toPersianDigits(getPersianDateString(rDateStr))} ساعت {rTime})
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {statusBadge}
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (window.confirm(`آیا مطمئن هستید که می‌خواهید گزارش بازدید کافه "${report.cafeName}" را حذف کنید؟`)) {
-                                    try {
-                                      await onDeleteReport(report.id, report.cafeId);
-                                    } catch (e) {
-                                      console.error("Error deleting report as admin:", e);
-                                    }
-                                  }
-                                }}
-                                className="p-1 hover:bg-red-50 hover:text-red-600 text-slate-400 rounded-lg transition-all cursor-pointer"
-                                title="حذف گزارش"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </div>
-                          
-                          {report.notes && (
-                            <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/50 p-2 rounded-lg border border-slate-100/50 font-medium">
-                              {report.notes}
-                            </p>
-                          )}
-
-                          {report.status === 'sold' && (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mt-1 text-right">
-                              <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-                                <div className="text-[10px] font-sans text-emerald-600 font-extrabold flex items-center gap-1">
-                                  <TrendingUp className="w-3.5 h-3.5" />
-                                  <span>مبلغ کل فاکتور: {toPersianDigits(formatPrice(report.totalPrice))} تومان</span>
-                                </div>
-                                
-                                {/* Payment Type Display */}
-                                <div className="flex items-center gap-1.5 text-[10px]">
-                                  <span className="text-slate-400 font-bold">نوع پرداخت:</span>
-                                  {report.paymentType === 'credit' ? (
-                                    report.isPaid ? (
-                                      <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md font-extrabold">
-                                        ✅ اعتباری (تسویه شده - {toPersianDigits(report.creditDays || 7)} روزه)
-                                      </span>
-                                    ) : (
-                                      <span className={`${
-                                        report.creditDueDate && report.creditDueDate < Date.now()
-                                          ? 'bg-red-100 text-red-800 border-red-200 animate-pulse'
-                                          : 'bg-orange-100 text-orange-800 border-orange-200'
-                                      } px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1`}>
-                                        {report.creditDueDate && report.creditDueDate < Date.now() ? '⚠️ بدهی سررسید گذشته' : '⏳ اعتباری پرداخت نشده'}
-                                        <span>({toPersianDigits(report.creditDays || 7)} روزه - سررسید: {report.creditDueDate ? toPersianDigits(getPersianDateString(new Date(report.creditDueDate).toISOString().split('T')[0])) : ''})</span>
-                                      </span>
-                                    )
+                            return (
+                              <tr key={report.id} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="py-2 px-3 text-center font-sans text-slate-400 font-medium">
+                                  {toPersianDigits(idx + 1)}
+                                </td>
+                                <td className="py-2 px-3">
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="font-extrabold text-slate-900 text-xs truncate max-w-[140px]" title={report.cafeName}>
+                                      {report.cafeName}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 font-sans font-medium whitespace-nowrap">
+                                      {rTime} {reportsDateFilter === 'all' ? `(${toPersianDigits(getPersianDateString(rDateStr))})` : ''}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  {report.status === 'sold' ? (
+                                    <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-800 border border-emerald-200/90 text-[10px] font-black px-2 py-0.5 rounded-md">
+                                      <span>فروش {toPersianDigits(report.quantitySold)} عدد</span>
+                                      {report.productName && <span className="text-[9px] text-emerald-600 font-medium">({report.productName})</span>}
+                                    </span>
+                                  ) : report.status === 'no_sale' ? (
+                                    <span className="bg-rose-50 text-rose-800 border border-rose-200 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                                      عدم خرید
+                                    </span>
+                                  ) : report.status === 'callback' ? (
+                                    <span className="bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                                      پیگیری مجدد
+                                    </span>
                                   ) : (
-                                    <span className="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md font-extrabold">
-                                      💵 نقدی (تسویه آنی)
+                                    <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold px-2 py-0.5 rounded-md">
+                                      بسته بود
                                     </span>
                                   )}
-                                </div>
-                              </div>
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  {report.status === 'sold' ? (
+                                    <div className="flex flex-col gap-0.5">
+                                      <span className="text-xs font-black text-emerald-600 font-sans">
+                                        {toPersianDigits(formatPrice(report.totalPrice))} <span className="text-[9px] text-slate-400 font-normal">تومان</span>
+                                      </span>
+                                      {report.paymentType === 'credit' ? (
+                                        report.isPaid ? (
+                                          <span className="text-[9px] text-emerald-700 font-bold flex items-center gap-0.5">
+                                            ✅ اعتباری تسویه
+                                          </span>
+                                        ) : (
+                                          <div className="flex items-center gap-1.5">
+                                            <span className={`text-[9px] font-bold ${
+                                              report.creditDueDate && report.creditDueDate < Date.now() ? 'text-red-700' : 'text-amber-700'
+                                            }`}>
+                                              ⏳ نسیه
+                                            </span>
+                                            {onUpdateReport && (
+                                              <button
+                                                type="button"
+                                                onClick={async () => {
+                                                  if (window.confirm(`آیا از تسویه حساب فاکتور اعتباری کافه "${report.cafeName}" اطمینان دارید؟`)) {
+                                                    await onUpdateReport(report.id, { isPaid: true });
+                                                  }
+                                                }}
+                                                className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[8px] font-black cursor-pointer shadow-xs"
+                                                title="ثبت تسویه حساب"
+                                              >
+                                                تسویه
+                                              </button>
+                                            )}
+                                          </div>
+                                        )
+                                      ) : (
+                                        <span className="text-[9px] text-slate-400 font-medium">💵 نقدی</span>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-slate-300 font-sans">—</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 max-w-[150px]">
+                                  {report.notes ? (
+                                    <span className="text-[10px] text-slate-500 font-medium truncate block" title={report.notes}>
+                                      {report.notes}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-300 text-[10px]">—</span>
+                                  )}
+                                </td>
+                                <td className="py-2 px-3 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (window.confirm(`آیا مطمئن هستید که می‌خواهید گزارش بازدید کافه "${report.cafeName}" را حذف کنید؟`)) {
+                                        try {
+                                          await onDeleteReport(report.id, report.cafeId);
+                                        } catch (e) {
+                                          console.error("Error deleting report as admin:", e);
+                                        }
+                                      }
+                                    }}
+                                    className="p-1 hover:bg-red-50 hover:text-red-600 text-slate-400 rounded-lg transition-all cursor-pointer inline-flex items-center justify-center"
+                                    title="حذف گزارش"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  /* Expanded Card View */
+                  <div className="divide-y divide-slate-100 overflow-y-auto font-medium">
+                    {filteredReports
+                      .sort((a, b) => b.timestamp - a.timestamp)
+                      .map((report) => {
+                        let statusBadge = null;
+                        if (report.status === 'sold') {
+                          statusBadge = (
+                            <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
+                              <span>فروش {report.productName ? `(${report.productName})` : ''}:</span>
+                              <span>{toPersianDigits(report.quantitySold)} عدد</span>
+                            </span>
+                          );
+                        } else if (report.status === 'no_sale') {
+                          statusBadge = <span className="bg-red-100 text-red-800 border border-red-200 text-[10px] font-bold px-2 py-0.5 rounded-full">عدم خرید</span>;
+                        } else if (report.status === 'callback') {
+                          statusBadge = <span className="bg-orange-100 text-orange-800 border border-orange-200 text-[10px] font-bold px-2 py-0.5 rounded-full">پیگیری مجدد</span>;
+                        } else if (report.status === 'closed') {
+                          statusBadge = <span className="bg-slate-100 text-slate-600 border border-slate-200 text-[10px] font-bold px-2 py-0.5 rounded-full">بسته بود</span>;
+                        }
 
-                              {/* Action to Mark as Paid */}
-                              {report.paymentType === 'credit' && !report.isPaid && onUpdateReport && (
+                        const rDateTimeObj = new Date(report.timestamp);
+                        const rTime = rDateTimeObj.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+                        const rDateStr = `${rDateTimeObj.getFullYear()}-${String(rDateTimeObj.getMonth() + 1).padStart(2, '0')}-${String(rDateTimeObj.getDate()).padStart(2, '0')}`;
+
+                        return (
+                          <div key={report.id} className="p-4 hover:bg-slate-50/50 transition-all flex flex-col gap-2">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-slate-800 text-xs">{report.cafeName}</span>
+                                <span className="text-[10px] text-slate-400 font-sans font-medium">
+                                  ({toPersianDigits(getPersianDateString(rDateStr))} ساعت {rTime})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {statusBadge}
                                 <button
                                   type="button"
                                   onClick={async () => {
-                                    if (window.confirm(`آیا از دریافت بدهی و تسویه حساب کامل فاکتور اعتباری کافه "${report.cafeName}" به مبلغ ${toPersianDigits(formatPrice(report.totalPrice))} تومان اطمینان دارید؟`)) {
-                                      setLoading(true);
+                                    if (window.confirm(`آیا مطمئن هستید که می‌خواهید گزارش بازدید کافه "${report.cafeName}" را حذف کنید؟`)) {
                                       try {
-                                        await onUpdateReport(report.id, { isPaid: true });
-                                      } catch (err) {
-                                        console.error(err);
-                                      } finally {
-                                        setLoading(false);
+                                        await onDeleteReport(report.id, report.cafeId);
+                                      } catch (e) {
+                                        console.error("Error deleting report as admin:", e);
                                       }
                                     }
                                   }}
-                                  disabled={loading}
-                                  className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] font-black flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
+                                  className="p-1 hover:bg-red-50 hover:text-red-600 text-slate-400 rounded-lg transition-all cursor-pointer"
+                                  title="حذف گزارش"
                                 >
-                                  <Check className="w-3 h-3" />
-                                  <span>تغییر وضعیت به تسویه شده</span>
+                                  <Trash2 className="w-4 h-4" />
                                 </button>
-                              )}
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      );
-                    });
-                })()}
-              </div>
+                            
+                            {report.notes && (
+                              <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/50 p-2 rounded-lg border border-slate-100/50 font-medium">
+                                {report.notes}
+                              </p>
+                            )}
+
+                            {report.status === 'sold' && (
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mt-1 text-right">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+                                  <div className="text-[10px] font-sans text-emerald-600 font-extrabold flex items-center gap-1">
+                                    <TrendingUp className="w-3.5 h-3.5" />
+                                    <span>مبلغ کل فاکتور: {toPersianDigits(formatPrice(report.totalPrice))} تومان</span>
+                                  </div>
+                                  
+                                  {/* Payment Type Display */}
+                                  <div className="flex items-center gap-1.5 text-[10px]">
+                                    <span className="text-slate-400 font-bold">نوع پرداخت:</span>
+                                    {report.paymentType === 'credit' ? (
+                                      report.isPaid ? (
+                                        <span className="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-md font-extrabold">
+                                          ✅ اعتباری (تسویه شده - {toPersianDigits(report.creditDays || 7)} روزه)
+                                        </span>
+                                      ) : (
+                                        <span className={`${
+                                          report.creditDueDate && report.creditDueDate < Date.now()
+                                            ? 'bg-red-100 text-red-800 border-red-200 animate-pulse'
+                                            : 'bg-orange-100 text-orange-800 border-orange-200'
+                                        } px-2 py-0.5 rounded-md font-extrabold flex items-center gap-1`}>
+                                          {report.creditDueDate && report.creditDueDate < Date.now() ? '⚠️ بدهی سررسید گذشته' : '⏳ اعتباری پرداخت نشده'}
+                                          <span>({toPersianDigits(report.creditDays || 7)} روزه - سررسید: {report.creditDueDate ? toPersianDigits(getPersianDateString(new Date(report.creditDueDate).toISOString().split('T')[0])) : ''})</span>
+                                        </span>
+                                      )
+                                    ) : (
+                                      <span className="bg-slate-100 text-slate-700 border border-slate-200 px-2 py-0.5 rounded-md font-extrabold">
+                                        💵 نقدی (تسویه آنی)
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Action to Mark as Paid */}
+                                {report.paymentType === 'credit' && !report.isPaid && onUpdateReport && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      if (window.confirm(`آیا از دریافت بدهی و تسویه حساب کامل فاکتور اعتباری کافه "${report.cafeName}" به مبلغ ${toPersianDigits(formatPrice(report.totalPrice))} تومان اطمینان دارید؟`)) {
+                                        setLoading(true);
+                                        try {
+                                          await onUpdateReport(report.id, { isPaid: true });
+                                        } catch (err) {
+                                          console.error(err);
+                                        } finally {
+                                          setLoading(false);
+                                        }
+                                      }
+                                    }}
+                                    disabled={loading}
+                                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] font-black flex items-center gap-1 cursor-pointer transition-all disabled:opacity-50"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    <span>تغییر وضعیت به تسویه شده</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}
